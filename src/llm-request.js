@@ -10,7 +10,7 @@ export function buildAnswerRequest({ apiUrl, model, system, user, stream = false
   const request = {
     model,
     temperature: 0.2,
-    max_tokens: 220,
+    max_tokens: 650,
     messages: [{ role: "system", content: system }, { role: "user", content: user }]
   };
   if (stream) request.stream = true;

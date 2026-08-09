@@ -18,6 +18,7 @@ import { extractLatestQuestionTurn } from "./src/question-turn.js";
 import { selectPersonalContext } from "./src/personal-context.js";
 import { extractSseDeltas } from "./src/llm-stream.js";
 import { getActiveSkillName } from "./src/skill-ui.js";
+import { defaultGlossary, normalizeQuestion, parseGlossaryMarkdown } from "./src/glossary.js";
 
 const defaultTemplate = "结论\n背景\n具体行动\n结果\n复盘";
 function readStorage(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } }
@@ -25,7 +26,8 @@ function writeStorage(key, value) { try { localStorage.setItem(key, value); } ca
 function readJsonStorage(key, fallback) { try { const value = JSON.parse(readStorage(key, JSON.stringify(fallback))); return value ?? fallback; } catch { return fallback; } }
 const savedDocuments = readJsonStorage("interview.documents", []);
 const savedDeletedDocuments = readJsonStorage("interview.deletedDocuments", []);
-const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], recognition: null, listening: false, speechFinal: "", speechTimer: null, restartTimer: null, template: readStorage("interview.template", defaultTemplate), templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, desktopAudio: null, desktopListening: false, desktopStarting: false, ownSpeakerId: readStorage("interview.ownSpeakerId", ""), asrProvider: "browser", savedAsrProvider: "browser", partialQuestionTimer: null, partialQuestionText: "", partialQuestionUpdatedAt: 0, committedAsrQuestion: "", committedAsrAt: 0, activeProjectId: readStorage("interview.activeProjectId", ""), voiceSamplePcm: null, voicePrintVerified: false };
+const savedGlossary = readJsonStorage("interview.glossary", defaultGlossary);
+const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], recognition: null, listening: false, speechFinal: "", speechTimer: null, restartTimer: null, template: readStorage("interview.template", defaultTemplate), templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, desktopAudio: null, desktopListening: false, desktopStarting: false, ownSpeakerId: readStorage("interview.ownSpeakerId", ""), asrProvider: "browser", savedAsrProvider: "browser", partialQuestionTimer: null, partialQuestionText: "", partialQuestionUpdatedAt: 0, committedAsrQuestion: "", committedAsrAt: 0, activeProjectId: readStorage("interview.activeProjectId", ""), glossary: Array.isArray(savedGlossary) ? savedGlossary : defaultGlossary, glossaryFileName: readStorage("interview.glossaryFileName", "内置 AI 产品术语"), voiceSamplePcm: null, voicePrintVerified: false };
 const answerState = createAnswerState();
 state.sections = state.documents.flatMap((doc) => doc.sections);
 const $ = (id) => document.getElementById(id);
@@ -43,8 +45,32 @@ function addDocument(name, markdown, type = "knowledge") {
   renderDocuments();
 }
 
+function documentPayload() {
+  return state.documents.map(({ name, markdown, type }) => ({ name, markdown, type }));
+}
+
 function persistDocuments() {
-  writeStorage("interview.documents", JSON.stringify(state.documents.map(({ name, markdown, type }) => ({ name, markdown, type }))));
+  const documents = documentPayload();
+  writeStorage("interview.documents", JSON.stringify(documents));
+  void fetch("/api/documents", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ documents }) }).catch(() => {});
+}
+
+async function loadPersistedDocuments() {
+  try {
+    const response = await fetch("/api/documents");
+    if (!response.ok) throw new Error("读取本地资料失败");
+    const payload = await response.json();
+    if (Array.isArray(payload.documents) && payload.documents.length) {
+      state.documents = payload.documents.map((doc) => ({ ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") }));
+      state.sections = state.documents.flatMap((doc) => doc.sections);
+      writeStorage("interview.documents", JSON.stringify(documentPayload()));
+    } else if (state.documents.length) {
+      persistDocuments();
+    }
+  } catch {
+    // 首次直接打开静态页面时仍用已有浏览器缓存；桌面端会使用本地文件恢复。
+  }
+  renderDocuments();
 }
 
 function deleteDocument(name) {
@@ -62,8 +88,41 @@ function deleteDocument(name) {
 function renderDocuments() {
   $("docCount").textContent = state.documents.length;
   if ($("knowledgeSummary")) $("knowledgeSummary").textContent = state.documents.length ? `${state.documents.length} 个资料文件已加载` : "知识库为空";
-  if ($("documentList")) $("documentList").innerHTML = state.documents.map((doc) => `<div class="doc-item"><span>▤ &nbsp;${escapeHtml(doc.name)}</span><span>${doc.sections.length} 节 <button class="edit-doc" data-edit-doc="${escapeHtml(doc.name)}" title="编辑文档">✎</button><button class="delete-doc" data-doc="${escapeHtml(doc.name)}" title="删除文档">×</button></span></div>`).join("");
-  $("knowledgeGrid").innerHTML = state.documents.length ? state.documents.map((doc) => `<article class="knowledge-card"><div class="knowledge-card-icon">${escapeHtml(doc.type === "transcript" ? "稿" : doc.type === "skill" ? "SK" : "KB")}</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>${escapeHtml({ transcript: "逐字稿", knowledge: "知识库", skill: "Skill 文档" }[doc.type] || "知识库")} · ${doc.sections.length} 个章节 · ${doc.sections.reduce((sum, section) => sum + section.content.length, 0)} 字</p></div><button class="edit-doc large" data-edit-doc="${escapeHtml(doc.name)}">编辑</button><button class="delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></article>`).join("") : `<div class="empty-module"><span>＋</span><p>还没有知识库文件</p><small>上传 Markdown 后会自动建立检索索引</small></div>`;
+  if ($("documentList")) $("documentList").innerHTML = state.documents.filter((doc) => doc.type !== "skill").map((doc) => `<div class="doc-item"><span>▤ &nbsp;${escapeHtml(doc.name)}</span><span>${doc.sections.length} 节 <button class="delete-doc" data-doc="${escapeHtml(doc.name)}" title="删除文档">×</button></span></div>`).join("");
+  const documents = state.documents.filter((doc) => doc.type !== "skill");
+  $("knowledgeGrid").innerHTML = documents.length ? documents.map((doc) => `<article class="knowledge-card"><div class="knowledge-card-icon">${escapeHtml(doc.type === "transcript" ? "稿" : "KB")}</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>${escapeHtml({ transcript: "逐字稿", knowledge: "知识库" }[doc.type] || "知识库")} · ${doc.sections.length} 个章节 · ${doc.sections.reduce((sum, section) => sum + section.content.length, 0)} 字</p></div><div class="knowledge-card-actions"><button class="delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`).join("") : `<div class="empty-module"><span>＋</span><p>还没有资料文件</p><small>上传 Markdown 或 Go 源码后会自动建立检索索引</small></div>`;
+  renderSkillCards();
+  renderRetrievalSettings();
+}
+
+function renderSkillCards() {
+  const container = $("skillCardList");
+  if (!container) return;
+  const skills = state.documents.filter((doc) => doc.type === "skill");
+  container.innerHTML = skills.length ? skills.map((doc) => {
+    const active = doc.name === state.templateName;
+    const wordCount = doc.sections.reduce((sum, section) => sum + section.content.length, 0);
+    return `<article class="knowledge-card skill-card${active ? " active" : ""}"><div class="knowledge-card-icon">SK</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>回答 Skill · ${doc.sections.length} 个章节 · ${wordCount} 字${active ? ' · <span class="skill-card-badge">当前应用中</span>' : ""}</p></div><div class="knowledge-card-actions"><button class="delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`;
+  }).join("") : `<div class="empty-module"><span>＋</span><p>还没有回答 Skill</p><small>上传 Markdown 后会自动应用到 LLM 回答</small></div>`;
+}
+
+function projectOptions() {
+  return [...new Set(state.sections.map((section) => section.project).filter(Boolean))].map((name) => ({ id: name.toLowerCase(), name }));
+}
+
+function renderRetrievalSettings(message = "") {
+  const container = $("glossaryCardList");
+  if (!container) return;
+  const isUploaded = state.glossaryFileName !== "内置 AI 产品术语";
+  container.innerHTML = isUploaded ? `<article class="knowledge-card"><div class="knowledge-card-icon">术</div><div class="knowledge-card-body"><h3>${escapeHtml(state.glossaryFileName)}</h3><p>术语表 · ${state.glossary.length} 个术语 · 已自动应用</p></div><div class="knowledge-card-actions"><button class="delete-glossary large" type="button">删除</button></div></article>` : `<div class="empty-module"><span>＋</span><p>${escapeHtml(message || "还没有术语表")}</p><small>上传 Markdown 后会自动应用到问题检索</small></div>`;
+}
+
+function deleteGlossary() {
+  state.glossary = defaultGlossary;
+  state.glossaryFileName = "内置 AI 产品术语";
+  writeStorage("interview.glossary", JSON.stringify(state.glossary));
+  writeStorage("interview.glossaryFileName", state.glossaryFileName);
+  renderRetrievalSettings();
 }
 
 function documentResultsHtml(query, sections = state.sections, route = routeAnswer(query, sections)) {
@@ -79,8 +138,7 @@ function documentResultsHtml(query, sections = state.sections, route = routeAnsw
 }
 
 function getScopedSections(query) {
-  const names = [...new Set(state.sections.map((section) => section.project).filter(Boolean))];
-  const projects = names.map((name) => ({ id: name.toLowerCase(), name, aliases: [] }));
+  const projects = projectOptions().map((project) => ({ ...project, aliases: [] }));
   const resolved = resolveProjectContext({ question: query, projects, activeProjectId: state.activeProjectId });
   if (!shouldScopeToProject(resolved, query)) return state.sections;
   if (resolved.source === "explicit") {
@@ -100,15 +158,16 @@ function renderAnswerState() {
 
 function runSearch(query, confirm = false) {
   const cleanQuery = query.trim();
+  const normalizedQuery = normalizeQuestion(cleanQuery, state.glossary);
   $("transcriptText").textContent = cleanQuery || "点击“开始监听”，或在下方输入一个问题开始匹配";
   if (!cleanQuery) return;
   if (!confirm || !isConfirmedQuestion(cleanQuery)) return;
-  const scopedSections = getScopedSections(cleanQuery);
-  const route = routeAnswer(cleanQuery, scopedSections);
+  const scopedSections = getScopedSections(normalizedQuery);
+  const route = routeAnswer(normalizedQuery, scopedSections);
   const previousContext = classifyTranscript(cleanQuery).followUp ? buildFollowUpContext(answerState.current) : "";
-  const current = beginQuestion(answerState, cleanQuery, documentResultsHtml(cleanQuery, scopedSections, route), previousContext);
+  const current = beginQuestion(answerState, cleanQuery, documentResultsHtml(normalizedQuery, scopedSections, route), previousContext);
   renderAnswerState();
-  generateAnswer(cleanQuery, current.requestId, current.context || "", route.matches, selectPersonalContext(state.sections));
+  generateAnswer(normalizedQuery, current.requestId, current.context || "", route.matches, selectPersonalContext(state.sections));
 }
 
 function clearPartialQuestionTimer() {
@@ -490,7 +549,7 @@ function setupModules() {
     document.querySelectorAll(".settings-tab").forEach((item) => item.classList.toggle("active", item === button));
     document.querySelectorAll(".settings-panel").forEach((panel) => panel.classList.toggle("hidden", panel.id !== button.dataset.settings));
   }));
-  document.addEventListener("click", (event) => { const deleteButton = event.target.closest(".delete-doc"); if (deleteButton && window.confirm(`确定删除“${deleteButton.dataset.doc}”吗？`)) deleteDocument(deleteButton.dataset.doc); const editButton = event.target.closest(".edit-doc"); if (editButton) openEditor(editButton.dataset.editDoc); });
+  document.addEventListener("click", (event) => { const glossaryButton = event.target.closest(".delete-glossary"); if (glossaryButton && window.confirm("确定删除当前术语表吗？")) deleteGlossary(); const deleteButton = event.target.closest(".delete-doc"); if (deleteButton && window.confirm(`确定删除“${deleteButton.dataset.doc}”吗？`)) deleteDocument(deleteButton.dataset.doc); });
   $("saveAsrConfigButton").addEventListener("click", saveAsrConfig);
   $("testAsrConfigButton").addEventListener("click", testAsrConnection);
   $("saveLlmConfigButton").addEventListener("click", saveLlmConfig);
@@ -507,6 +566,22 @@ function setupModules() {
     $("aiApiUrl").value = "https://api.deepseek.com/chat/completions";
     $("aiModel").value = "deepseek-v4-flash";
     $("llmConfigStatus").innerHTML = '<span class="status-dot"></span>已填入 DeepSeek 示例，请填写 API Key 后保存并测试';
+  });
+  $("glossaryFileInput").addEventListener("change", async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const glossary = parseGlossaryMarkdown(await file.text());
+    if (!glossary.length) {
+      renderRetrievalSettings("文件未应用：未识别到有效术语");
+      event.target.value = "";
+      return;
+    }
+    state.glossary = glossary;
+    state.glossaryFileName = file.name;
+    writeStorage("interview.glossary", JSON.stringify(state.glossary));
+    writeStorage("interview.glossaryFileName", state.glossaryFileName);
+    renderRetrievalSettings();
+    event.target.value = "";
   });
   $("voiceSampleButton").addEventListener("click", recordAndEnrollVoiceprint);
   $("verifyVoiceprintButton").addEventListener("click", verifyVoiceprint);
@@ -697,6 +772,7 @@ function saveEditor() {
   if (state.editingDocument.type === "skill") { state.template = nextMarkdown; state.templateName = nextName; writeStorage("interview.template", state.template); writeStorage("interview.templateName", state.templateName); }
   state.sections = state.documents.flatMap((doc) => doc.sections);
   persistDocuments();
+  updateSkillPreview();
   renderDocuments();
   closeEditor();
 }
@@ -709,4 +785,7 @@ setupSpeech();
 setupModules();
 renderAnswerState();
 loadAsrConfig();
-loadBundledKnowledgeBase();
+void (async () => {
+  await loadPersistedDocuments();
+  await loadBundledKnowledgeBase();
+})();

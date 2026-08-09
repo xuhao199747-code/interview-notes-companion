@@ -1,7 +1,6 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getRuntimeConfig, startServer } from "../server.js";
 import { createAsrSession, validateAsrProviderConfig } from "../src/asr-provider.js";
 import { shouldPublishAudioProgress } from "../src/audio-progress.js";
 import { createVoiceprintClient, voiceprintDecision } from "../src/tencent-voiceprint.js";
@@ -9,9 +8,12 @@ import { getEditionStorageName } from "../src/edition.js";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 app.setPath("userData", path.join(app.getPath("appData"), getEditionStorageName(process.env.INTERVIEW_EDITION)));
+process.env.INTERVIEW_DATA_DIR = app.getPath("userData");
 let windowRef;
 let localServer;
 let asrSession;
+let getRuntimeConfig;
+let startServer;
 let audioPacketCount = 0;
 let recentAudio = [];
 let recentAudioBytes = 0;
@@ -49,6 +51,7 @@ async function publishAsrPayload(config, payload) {
 }
 
 async function createWindow() {
+  if (!startServer) ({ getRuntimeConfig, startServer } = await import("../server.js"));
   localServer = await startServer(0);
   const address = localServer.address();
   windowRef = new BrowserWindow({

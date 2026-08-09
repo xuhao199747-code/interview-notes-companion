@@ -39,7 +39,8 @@ test("真实知识库中项目复盘问题没有对应材料时显示空状态",
   assert.deepEqual(route.matches, []);
 });
 
-test("页面使用回答路由来决定资料来源标签", async () => {
+test("页面归一化术语后使用回答路由来决定资料来源标签", async () => {
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
-  assert.match(app, /routeAnswer\(cleanQuery, scopedSections\)/);
+  assert.match(app, /normalizeQuestion\(cleanQuery, state\.glossary\)/);
+  assert.match(app, /routeAnswer\(normalizedQuery, scopedSections\)/);
 });
