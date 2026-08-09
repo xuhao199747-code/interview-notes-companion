@@ -1,3 +1,3 @@
 export function getEditionStorageName(edition) {
-  return `interview-notes-companion-${edition === "local" ? "local" : "release"}`;
+  return edition === "local" ? "interview-notes-companion-local" : "interview-notes-companion";
 }
