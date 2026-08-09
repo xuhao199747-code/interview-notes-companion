@@ -18,6 +18,7 @@ import { extractLatestQuestionTurn } from "./src/question-turn.js";
 import { selectPersonalContext } from "./src/personal-context.js";
 import { extractSseDeltas } from "./src/llm-stream.js";
 import { getActiveSkillName } from "./src/skill-ui.js";
+import { defaultGlossary, normalizeQuestion } from "./src/glossary.js";
 
 const defaultTemplate = "结论\n背景\n具体行动\n结果\n复盘";
 function readStorage(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } }
@@ -25,7 +26,8 @@ function writeStorage(key, value) { try { localStorage.setItem(key, value); } ca
 function readJsonStorage(key, fallback) { try { const value = JSON.parse(readStorage(key, JSON.stringify(fallback))); return value ?? fallback; } catch { return fallback; } }
 const savedDocuments = readJsonStorage("interview.documents", []);
 const savedDeletedDocuments = readJsonStorage("interview.deletedDocuments", []);
-const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], recognition: null, listening: false, speechFinal: "", speechTimer: null, restartTimer: null, template: readStorage("interview.template", defaultTemplate), templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, desktopAudio: null, desktopListening: false, desktopStarting: false, ownSpeakerId: readStorage("interview.ownSpeakerId", ""), asrProvider: "browser", savedAsrProvider: "browser", partialQuestionTimer: null, partialQuestionText: "", partialQuestionUpdatedAt: 0, committedAsrQuestion: "", committedAsrAt: 0, activeProjectId: readStorage("interview.activeProjectId", ""), voiceSamplePcm: null, voicePrintVerified: false };
+const savedGlossary = readJsonStorage("interview.glossary", defaultGlossary);
+const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], recognition: null, listening: false, speechFinal: "", speechTimer: null, restartTimer: null, template: readStorage("interview.template", defaultTemplate), templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, desktopAudio: null, desktopListening: false, desktopStarting: false, ownSpeakerId: readStorage("interview.ownSpeakerId", ""), asrProvider: "browser", savedAsrProvider: "browser", partialQuestionTimer: null, partialQuestionText: "", partialQuestionUpdatedAt: 0, committedAsrQuestion: "", committedAsrAt: 0, activeProjectId: readStorage("interview.activeProjectId", ""), lockedProjectId: readStorage("interview.lockedProjectId", ""), glossary: Array.isArray(savedGlossary) ? savedGlossary : defaultGlossary, voiceSamplePcm: null, voicePrintVerified: false };
 const answerState = createAnswerState();
 state.sections = state.documents.flatMap((doc) => doc.sections);
 const $ = (id) => document.getElementById(id);
@@ -100,15 +102,16 @@ function renderAnswerState() {
 
 function runSearch(query, confirm = false) {
   const cleanQuery = query.trim();
+  const normalizedQuery = normalizeQuestion(cleanQuery, state.glossary);
   $("transcriptText").textContent = cleanQuery || "点击“开始监听”，或在下方输入一个问题开始匹配";
   if (!cleanQuery) return;
   if (!confirm || !isConfirmedQuestion(cleanQuery)) return;
-  const scopedSections = getScopedSections(cleanQuery);
-  const route = routeAnswer(cleanQuery, scopedSections);
+  const scopedSections = getScopedSections(normalizedQuery);
+  const route = routeAnswer(normalizedQuery, scopedSections);
   const previousContext = classifyTranscript(cleanQuery).followUp ? buildFollowUpContext(answerState.current) : "";
-  const current = beginQuestion(answerState, cleanQuery, documentResultsHtml(cleanQuery, scopedSections, route), previousContext);
+  const current = beginQuestion(answerState, cleanQuery, documentResultsHtml(normalizedQuery, scopedSections, route), previousContext);
   renderAnswerState();
-  generateAnswer(cleanQuery, current.requestId, current.context || "", route.matches, selectPersonalContext(state.sections));
+  generateAnswer(normalizedQuery, current.requestId, current.context || "", route.matches, selectPersonalContext(state.sections));
 }
 
 function clearPartialQuestionTimer() {
@@ -524,8 +527,7 @@ function setupModules() {
 function updateSkillPreview() {
   const activeSkillName = getActiveSkillName(state.documents, state.templateName);
   if ($("activeSkillName")) $("activeSkillName").textContent = activeSkillName;
-  if ($("activeSkillStatus")) $("activeSkillStatus").textContent = `已应用：${activeSkillName}。下一次生成回答会按下方规则组织。`;
-  if ($("templatePreview")) $("templatePreview").innerHTML = (state.template || defaultTemplate).split(/\r?\n/).map((line, index) => `<div class="preview-row"><span>${String(index + 1).padStart(2, "0")}</span><strong>${escapeHtml(line || "未命名段落")}</strong></div>`).join("");
+  if ($("activeSkillStatus")) $("activeSkillStatus").textContent = "已应用到后续 LLM 回答。";
 }
 
 function openView(viewId, settingsId = null) {
