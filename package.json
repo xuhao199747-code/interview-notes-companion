@@ -1,0 +1,19 @@
+{
+  "name": "interview-notes-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node server.js",
+    "desktop": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^37.2.1"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "ws": "^8.18.3"
+  }
+}

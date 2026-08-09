@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1220" />
+    <title>面试资料伴侣</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="modal.css" />
+    <link rel="stylesheet" href="config.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">✦</span><span>面试资料伴侣</span></div>
+        <nav class="main-nav" aria-label="主导航">
+          <button class="nav-button active" data-view="questionView">问题</button>
+          <button class="nav-button" data-view="settingsView">设置</button>
+        </nav>
+        <div class="privacy-pill"><span class="status-dot"></span>资料仅保存在本机</div>
+      </header>
+
+      <main class="workspace">
+        <section class="question-workspace app-view" id="questionView">
+          <div class="question-toolbar"><div class="workspace-title"><span class="section-kicker">INTERVIEW WORKSPACE</span><h1>面试问题</h1><span class="source-count"><span class="status-dot"></span><b id="docCount">0</b> 个资料文件</span></div><section class="panel live-panel">
+            <div class="panel-heading live-heading"><div><span class="section-kicker">02 / LISTENING</span><h2>实时问题</h2></div><button class="mic-button" id="micButton" aria-label="开始或停止监听"><span class="mic-icon">●</span><span id="micLabel">开始监听</span></button></div>
+            <div class="transcript-card" id="transcriptCard">
+              <div class="waveform" id="waveform"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <p class="transcript-placeholder" id="transcriptText">点击“开始监听”，或在下方输入一个问题开始匹配</p>
+            </div>
+            <div class="tips"><span>⌘</span><span>建议使用 Chrome 浏览器以获得最佳语音识别体验</span></div>
+          </section></div>
+          <section class="panel results-panel"><div class="panel-heading"><div><span class="section-kicker">03 / PREPARED ANSWERS</span><h2>准备内容</h2></div><span class="match-label" id="matchLabel">等待问题</span></div><section class="previous-answer" id="previousAnswer"></section><div class="answer-source-grid"><section class="answer-source"><div class="source-heading"><span class="section-kicker">DOCUMENT LIBRARY</span><h3>文档库参考</h3></div><div id="documentResults" class="results-list"></div></section><section class="answer-source"><div class="source-heading"><span class="section-kicker">LLM GENERATED</span><h3>LLM 生成回答</h3></div><div id="llmResults" class="results-list"></div></section></div></section>
+        </section>
+
+        <section class="module-view app-view hidden" id="settingsView">
+          <div class="module-header"><div><span class="section-kicker">SETTINGS</span><h2>设置</h2><p>把不需要一直展示的高级功能集中在这里。</p></div></div>
+          <div class="settings-tabs"><button class="settings-tab active" data-settings="knowledgeSettings">资料管理</button><button class="settings-tab" data-settings="templateSettings">回答 Skill</button><button class="settings-tab" data-settings="voiceSettings">声纹识别</button><button class="settings-tab" data-settings="apiSettings">语音识别</button><button class="settings-tab" data-settings="llmSettings">LLM API</button></div>
+          <div class="settings-panel" id="knowledgeSettings"><div class="module-header compact"><div><span class="section-kicker">SOURCE FILES</span><h3>资料管理</h3><p>上传、编辑或删除逐字稿、知识库 Markdown 和 Go 源码文件。</p></div><div class="upload-controls"><select id="sourceType"><option value="transcript">逐字稿</option><option value="knowledge">知识库</option></select><label class="primary-button" for="fileInputModule">＋ 上传资料</label></div></div><input id="fileInputModule" type="file" accept=".md,.markdown,.go,text/markdown" multiple hidden /><div class="knowledge-grid" id="knowledgeGrid"></div></div>
+          <div class="settings-panel hidden" id="templateSettings"><div class="module-header compact"><div><span class="section-kicker">ANSWER SKILL</span><h3>回答 Skill</h3><p>上传后会立即应用到下一次 LLM 回答。</p></div><label class="primary-button" for="skillFileInput">＋ 上传 Skill 文档</label><input id="skillFileInput" type="file" accept=".md,.markdown,text/markdown" hidden /></div><div class="skill-template-card"><div class="knowledge-card-icon">SK</div><div><strong id="activeSkillName">尚未选择回答 Skill</strong><p id="activeSkillStatus">上传一个 Skill 后会在这里显示已应用状态。</p></div></div><div class="template-preview"><span class="section-kicker">CURRENT RULES</span><h3>当前回答规则</h3><div id="templatePreview"></div></div></div>
+          <div class="settings-panel hidden" id="voiceSettings"><div class="settings-copy"><span class="section-kicker">SPEAKER FILTER</span><h3>本人声纹过滤</h3><p>豆包继续负责实时转文字；腾讯云只用于确认“这段声音是不是我”。只有录入并验证成功后，才会显示为可启用。</p><div class="settings-warning">声纹服务使用“语音识别”页已保存的腾讯云 SecretId 和 SecretKey，不需要填写腾讯云 AppID。请先在腾讯云开通声纹服务；密钥只保存在本机。</div><div class="api-status" id="voiceprintStatus"><span class="status-dot error-dot"></span>未连接声纹服务：请先保存腾讯云密钥并录入样本</div><div class="provider-grid"><div class="full-field"><label for="voicePrintId">腾讯云声纹档案 ID（录入后自动生成）</label><input id="voicePrintId" readonly placeholder="尚未录入" /></div><div class="full-field"><label for="audioDeviceSelect">桌面音频设备</label><select id="audioDeviceSelect"><option value="">请先刷新设备列表</option></select></div></div><div class="voice-actions"><button class="secondary-button" id="refreshAudioDevicesButton">刷新音频设备</button><button class="ghost-button" id="voiceSampleButton">录入 6 秒本人样本</button><button class="secondary-button" id="verifyVoiceprintButton" disabled>验证当前样本</button><button class="ghost-button" id="deleteVoiceprintButton">删除本地绑定</button></div><span class="settings-status" id="voiceSampleStatus">录入后会真实提交到腾讯云；验证成功前不会启用本人过滤。</span><div class="voice-actions"><button class="primary-button" id="startDesktopAsrButton">开始桌面监听</button><button class="secondary-button" id="stopDesktopAsrButton" disabled>停止监听</button></div><div class="api-status" id="desktopAsrStatus"><span class="status-dot error-dot"></span>未连接：请使用 Mac 桌面应用并选择音频设备</div><div class="speaker-live" id="speakerLive">尚未收到转写或声纹判定</div></div></div>
+          <div class="settings-panel hidden" id="apiSettings"><div class="settings-copy"><span class="section-kicker">SPEECH TO TEXT</span><h3>语音识别</h3><p>浏览器适合临时听写；桌面会议转写请选择腾讯云或豆包，并从 Mac 桌面应用启动监听。</p><div class="provider-grid"><div class="full-field"><label for="asrProvider">语音识别服务</label><select id="asrProvider"><option value="browser">浏览器 Web Speech（默认）</option><option value="tencent">腾讯云实时语音识别 V2</option><option value="doubao">豆包流式语音识别（火山引擎）</option></select></div><div id="tencentConfigFields" class="full-field provider-grid"><div><label for="tencentRegion">腾讯云地域</label><input id="tencentRegion" value="ap-guangzhou" /></div><div><label for="tencentAppId">腾讯云 AppID</label><input id="tencentAppId" inputmode="numeric" placeholder="例如 1234567890" /></div><div><label for="tencentSecretId">SecretID</label><input id="tencentSecretId" autocomplete="off" /></div><div><label for="tencentSecretKey">SecretKey</label><input id="tencentSecretKey" type="password" autocomplete="new-password" placeholder="只在本地填写，不会回显" /></div></div><div id="doubaoConfigFields" class="full-field provider-grid hidden"><div><label for="doubaoAppId">豆包 App ID</label><input id="doubaoAppId" autocomplete="off" /></div><div><label for="doubaoAccessToken">Access Token</label><input id="doubaoAccessToken" type="password" autocomplete="new-password" placeholder="只在本地填写，不会回显" /></div><div><label for="doubaoResourceId">资源 ID</label><input id="doubaoResourceId" placeholder="例如 volc.seedasr.sauc.duration" /></div><div><label for="doubaoEndpoint">WebSocket 地址</label><input id="doubaoEndpoint" value="wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async" /></div></div></div><div class="api-status" id="asrConfigStatus"><span class="status-dot"></span>默认使用浏览器语音识别</div><div class="config-actions"><button class="primary-button" id="saveAsrConfigButton">保存语音配置</button><button class="secondary-button" id="testAsrConfigButton">浏览器模式无需测试</button></div><div class="settings-guide"><strong>接入说明</strong><p id="asrProviderHelp">浏览器模式不需要密钥，但不支持桌面会议音频转写。</p><ol><li>在火山引擎“豆包语音”中开通大模型流式语音识别。</li><li>创建应用后复制 App ID、Access Token 和已开通的资源 ID。</li><li>选择“豆包流式语音识别”，保存后点击“测试当前语音服务”。</li><li>只有测试成功，桌面监听才会将会议音频转成文字。</li></ol></div></div></div>
+          <div class="settings-panel hidden" id="llmSettings"><div class="settings-copy"><span class="section-kicker">LLM API</span><h3>LLM API 接入</h3><p>当知识库没有匹配答案时，程序会使用这里的 API 按回答 Skill 生成补充回答。保存后请点击“测试连接”，只有测试通过才代表可以使用。</p><div class="provider-grid"><div class="full-field"><label for="aiApiUrl">API 地址</label><input id="aiApiUrl" placeholder="https://api.openai.com/v1/chat/completions" /></div><div><label for="aiModel">模型名称</label><input id="aiModel" placeholder="例如 gpt-4o-mini" /></div><div><label for="aiApiKey">API Key</label><input id="aiApiKey" type="password" autocomplete="new-password" placeholder="只在本地填写，不会回显" /></div></div><div class="api-status" id="llmConfigStatus"><span class="status-dot"></span>尚未配置 LLM API</div><div class="config-actions"><button class="primary-button" id="saveLlmConfigButton">保存 LLM 配置</button><button class="secondary-button" id="testLlmConfigButton">测试连接</button><button class="ghost-button" id="useDeepSeekPresetButton">填入 DeepSeek 示例</button></div><div class="settings-guide"><strong>DeepSeek 正确填写示例</strong><ol><li>API 地址：<code>https://api.deepseek.com/chat/completions</code></li><li>模型名称：<code>deepseek-v4-flash</code></li><li>不要填写 <code>platform.deepseek.com/api_keys</code>，那是密钥管理网页，不是 API。</li></ol></div></div></div>
+        </section>
+      </main>
+      <footer><span>面试资料伴侣 v0.1</span><span>本地优先 · 你的内容属于你</span></footer>
+    </div>
+    <div class="editor-modal hidden" id="editorModal" role="dialog" aria-modal="true" aria-labelledby="editorModalTitle">
+      <div class="editor-modal-card"><div class="modal-heading"><div><span class="section-kicker">EDIT SOURCE</span><h2 id="editorModalTitle">编辑资料</h2></div><button class="modal-close" id="closeEditorButton">×</button></div><label for="editorFileName">文件名称</label><input id="editorFileName" /><label for="editorContent">Markdown 内容</label><textarea id="editorContent" spellcheck="false"></textarea><div class="modal-actions"><button class="secondary-button" id="cancelEditorButton">取消</button><button class="primary-button" id="saveEditorButton">保存修改</button></div></div>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

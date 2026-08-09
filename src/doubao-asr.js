@@ -1,0 +1,110 @@
+import { randomUUID } from "node:crypto";
+import { gunzipSync, gzipSync } from "node:zlib";
+import WebSocket from "ws";
+import { defaultDoubaoEndpoint } from "./doubao-config.js";
+
+function buildHeader(messageType, flags = 0, serialization = 0, compression = 0) {
+  return Buffer.from([0x11, (messageType << 4) | flags, (serialization << 4) | compression, 0]);
+}
+
+function buildPacket(header, payload) {
+  const size = Buffer.alloc(4);
+  size.writeUInt32BE(payload.length);
+  return Buffer.concat([header, size, payload]);
+}
+
+function extractPayload(buffer) {
+  const flags = buffer[1] & 0x0f;
+  const compression = buffer[2] & 0x0f;
+  let offset = 4;
+  if (flags & 0x01) offset += 4;
+  if (buffer.length < offset + 4) return null;
+  const size = buffer.readUInt32BE(offset);
+  offset += 4;
+  if (buffer.length < offset + size) return null;
+  const raw = buffer.subarray(offset, offset + size);
+  return compression === 1 ? gunzipSync(raw) : raw;
+}
+
+export function createDoubaoRequest(config, connectId = randomUUID()) {
+  const configPayload = Buffer.from(JSON.stringify({
+    user: { uid: "interview-notes-companion" },
+    audio: { format: "pcm", codec: "raw", rate: 16000, bits: 16, channel: 1 },
+    request: { model_name: "bigmodel", enable_itn: true, enable_punc: true, enable_ddc: false, show_utterances: true, result_type: "full" }
+  }));
+  return {
+    url: config.doubaoEndpoint || defaultDoubaoEndpoint,
+    headers: {
+      "X-Api-App-Key": config.doubaoAppId,
+      "X-Api-Access-Key": config.doubaoAccessToken,
+      "X-Api-Resource-Id": config.doubaoResourceId,
+      "X-Api-Connect-Id": connectId
+    },
+    firstFrame: buildPacket(buildHeader(0x1, 0, 1, 1), gzipSync(configPayload))
+  };
+}
+
+export function encodeDoubaoAudioFrame(audio, isLast = false) {
+  return buildPacket(buildHeader(0x2, isLast ? 0x2 : 0, 0, 1), gzipSync(Buffer.from(audio)));
+}
+
+export function decodeDoubaoResponse(raw) {
+  const buffer = Buffer.from(raw);
+  if (buffer.length < 4 || (buffer[1] >> 4) !== 0x9) return [];
+  const payload = extractPayload(buffer);
+  if (!payload) return [];
+  const data = JSON.parse(payload.toString("utf8"));
+  const utterances = data.result?.utterances;
+  const latestUtterance = Array.isArray(utterances) ? utterances.at(-1) : null;
+  const sentence = (latestUtterance?.text || data.result?.text)?.trim();
+  if (!sentence) return [];
+  return [{ type: "result", sentence: { sentence, sentence_type: (buffer[1] & 0x02) ? 1 : 0, speaker_id: -1 } }];
+}
+
+function readError(raw) {
+  const buffer = Buffer.from(raw);
+  const code = buffer.length >= 8 ? buffer.readUInt32BE(4) : undefined;
+  const textLength = buffer.length >= 12 ? buffer.readUInt32BE(8) : 0;
+  const message = textLength ? buffer.subarray(12, 12 + textLength).toString("utf8") : "豆包语音识别服务返回错误";
+  return { code, message };
+}
+
+export class DoubaoAsrSession {
+  constructor(config, onEvent) {
+    this.config = config;
+    this.onEvent = onEvent;
+    this.socket = null;
+    this.ready = false;
+    this.stopped = false;
+  }
+
+  start() {
+    const request = createDoubaoRequest(this.config);
+    this.socket = new WebSocket(request.url, { headers: request.headers });
+    this.socket.on("open", () => {
+      this.socket.send(request.firstFrame);
+      this.ready = true;
+      this.onEvent({ type: "ready" });
+    });
+    this.socket.on("message", (raw) => this.handleMessage(raw));
+    this.socket.on("error", () => this.onEvent({ type: "error", message: "豆包语音连接失败" }));
+    this.socket.on("close", () => { if (!this.stopped) this.onEvent({ type: "closed" }); });
+  }
+
+  handleMessage(raw) {
+    const buffer = Buffer.from(raw);
+    if ((buffer[1] >> 4) === 0x0f) return this.onEvent({ type: "error", ...readError(buffer) });
+    try { decodeDoubaoResponse(buffer).forEach((event) => this.onEvent(event)); }
+    catch { this.onEvent({ type: "error", message: "无法解析豆包识别结果" }); }
+  }
+
+  sendAudio(chunk) {
+    if (this.ready && this.socket?.readyState === WebSocket.OPEN) this.socket.send(encodeDoubaoAudioFrame(chunk));
+  }
+
+  stop() {
+    this.stopped = true;
+    if (this.ready && this.socket?.readyState === WebSocket.OPEN) this.socket.send(encodeDoubaoAudioFrame(Buffer.alloc(0), true));
+    setTimeout(() => this.socket?.close(), 100);
+  }
+}
