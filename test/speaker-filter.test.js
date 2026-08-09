@@ -22,5 +22,5 @@ test("豆包的临时识别结果应实时显示，但不应提前触发检索",
 test("声纹结果未出时，豆包临时文本不能触发检索", async () => {
   const { readFile } = await import("node:fs/promises");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
-  assert.match(app, /gate === "hold" && sentence\.sentence_type !== 1/);
+  assert.match(app, /shouldCommitVoiceprintResult\(\{ gate, final: sentence\.sentence_type === 1 \}\)/);
 });

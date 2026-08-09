@@ -12,6 +12,10 @@ import { classifyTranscript, shouldCommitAfterSilence } from "./src/turn-detecto
 import { resolveProjectContext, shouldScopeToProject } from "./src/project-context.js";
 import { routeAnswer } from "./src/answer-router.js";
 import { decideSpeakerGate } from "./src/speaker-gate.js";
+import { shouldCommitVoiceprintResult } from "./src/voiceprint-routing.js";
+import { getVoiceprintGuide } from "./src/voiceprint-guide.js";
+import { formatVoiceprintError } from "./src/voiceprint-status.js";
+import { withTimeout } from "./src/request-timeout.js";
 import { removeCommittedQuestionPrefix } from "./src/asr-turn-cleaner.js";
 import { shouldRefreshPartialQuestion } from "./src/partial-question.js";
 import { extractLatestQuestionTurn } from "./src/question-turn.js";
@@ -19,6 +23,7 @@ import { selectPersonalContext } from "./src/personal-context.js";
 import { extractSseDeltas } from "./src/llm-stream.js";
 import { getActiveSkillName } from "./src/skill-ui.js";
 import { defaultGlossary, normalizeQuestion, parseGlossaryMarkdown } from "./src/glossary.js";
+import { classifyAnswerScope, selectAnswerMaterials, shouldUsePersonalContext } from "./src/answer-context-policy.js";
 
 const defaultTemplate = "结论\n背景\n具体行动\n结果\n复盘";
 function readStorage(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } }
@@ -27,9 +32,12 @@ function readJsonStorage(key, fallback) { try { const value = JSON.parse(readSto
 const savedDocuments = readJsonStorage("interview.documents", []);
 const savedDeletedDocuments = readJsonStorage("interview.deletedDocuments", []);
 const savedGlossary = readJsonStorage("interview.glossary", defaultGlossary);
-const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], recognition: null, listening: false, speechFinal: "", speechTimer: null, restartTimer: null, template: readStorage("interview.template", defaultTemplate), templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, desktopAudio: null, desktopListening: false, desktopStarting: false, ownSpeakerId: readStorage("interview.ownSpeakerId", ""), asrProvider: "browser", savedAsrProvider: "browser", partialQuestionTimer: null, partialQuestionText: "", partialQuestionUpdatedAt: 0, committedAsrQuestion: "", committedAsrAt: 0, activeProjectId: readStorage("interview.activeProjectId", ""), glossary: Array.isArray(savedGlossary) ? savedGlossary : defaultGlossary, glossaryFileName: readStorage("interview.glossaryFileName", "内置 AI 产品术语"), voiceSamplePcm: null, voicePrintVerified: false };
+const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], recognition: null, listening: false, speechFinal: "", speechTimer: null, restartTimer: null, template: readStorage("interview.template", defaultTemplate), templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, desktopAudio: null, desktopListening: false, desktopStarting: false, ownSpeakerId: readStorage("interview.ownSpeakerId", ""), asrProvider: "browser", savedAsrProvider: "browser", partialQuestionTimer: null, partialQuestionText: "", partialQuestionUpdatedAt: 0, committedAsrQuestion: "", committedAsrAt: 0, activeProjectId: readStorage("interview.activeProjectId", ""), glossary: Array.isArray(savedGlossary) ? savedGlossary : defaultGlossary, glossaryFileName: readStorage("interview.glossaryFileName", "内置 AI 产品术语"), glossaryMarkdown: readStorage("interview.glossaryMarkdown", ""), voiceSamplePcm: null, voiceVerificationPcm: null, voicePrintVerified: false };
 const answerState = createAnswerState();
-state.sections = state.documents.flatMap((doc) => doc.sections);
+function refreshSearchSections() {
+  state.sections = state.documents.filter((doc) => doc.type !== "skill").flatMap((doc) => doc.sections);
+}
+refreshSearchSections();
 const $ = (id) => document.getElementById(id);
 const demoMarkdown = `# 自我介绍\n我有五年产品经验，负责过从零到一的 SaaS 产品，擅长用户研究、产品规划和跨团队协作。\n\n## 项目挑战\n我通过用户访谈定位核心问题，和工程团队一起拆解方案并快速验证，最终让关键流程转化率提升了 28%。\n\n## 离职原因\n希望加入更重视用户价值和长期产品建设的团队，在更复杂的业务环境中持续成长。\n\n## 你为什么适合这个岗位\n我既能深入理解用户，也能把模糊的问题拆成清晰可执行的计划，并用数据验证结果。`;
 
@@ -40,10 +48,9 @@ function emptyUploadCard(kind, inputId, title, hint) {
 function addDocument(name, markdown, type = "knowledge") {
   if (state.deletedDocuments.includes(name)) return;
   state.documents = state.documents.filter((doc) => doc.name !== name);
-  state.sections = state.documents.flatMap((doc) => doc.sections);
   const sections = parseMarkdown(markdown, name);
   state.documents.push({ name, markdown, type, sections });
-  state.sections.push(...sections);
+  refreshSearchSections();
   if (type === "skill") { state.template = markdown; state.templateName = name; writeStorage("interview.template", state.template); writeStorage("interview.templateName", state.templateName); updateSkillPreview(); }
   persistDocuments();
   renderDocuments();
@@ -66,7 +73,7 @@ async function loadPersistedDocuments() {
     const payload = await response.json();
     if (Array.isArray(payload.documents) && payload.documents.length) {
       state.documents = payload.documents.map((doc) => ({ ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") }));
-      state.sections = state.documents.flatMap((doc) => doc.sections);
+      refreshSearchSections();
       writeStorage("interview.documents", JSON.stringify(documentPayload()));
     } else if (state.documents.length) {
       persistDocuments();
@@ -77,10 +84,45 @@ async function loadPersistedDocuments() {
   renderDocuments();
 }
 
+function persistGlossary() {
+  writeStorage("interview.glossary", JSON.stringify(state.glossary));
+  writeStorage("interview.glossaryFileName", state.glossaryFileName);
+  writeStorage("interview.glossaryMarkdown", state.glossaryMarkdown);
+  if (!state.glossaryMarkdown) {
+    void fetch("/api/glossary", { method: "DELETE" }).catch(() => {});
+    return;
+  }
+  void fetch("/api/glossary", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: state.glossaryFileName, markdown: state.glossaryMarkdown }) }).catch(() => {});
+}
+
+async function loadPersistedGlossary() {
+  try {
+    const response = await fetch("/api/glossary");
+    if (!response.ok) throw new Error("读取本机术语表失败");
+    const { glossary } = await response.json();
+    if (glossary?.name && glossary?.markdown) {
+      const terms = parseGlossaryMarkdown(glossary.markdown);
+      if (terms.length) {
+        state.glossary = terms;
+        state.glossaryFileName = glossary.name;
+        state.glossaryMarkdown = glossary.markdown;
+        writeStorage("interview.glossary", JSON.stringify(state.glossary));
+        writeStorage("interview.glossaryFileName", state.glossaryFileName);
+        writeStorage("interview.glossaryMarkdown", state.glossaryMarkdown);
+      }
+    } else if (state.glossaryMarkdown) {
+      persistGlossary();
+    }
+  } catch {
+    // 静态页面仍可使用浏览器缓存；桌面端会从本机文件恢复。
+  }
+  renderRetrievalSettings();
+}
+
 function deleteDocument(name) {
   const deleted = state.documents.find((doc) => doc.name === name);
   state.documents = state.documents.filter((doc) => doc.name !== name);
-  state.sections = state.documents.flatMap((doc) => doc.sections);
+  refreshSearchSections();
   if (deleted?.type === "skill") { const nextSkill = state.documents.find((doc) => doc.type === "skill"); state.template = nextSkill?.markdown || defaultTemplate; state.templateName = nextSkill?.name || "面试口头回答模板"; writeStorage("interview.template", state.template); writeStorage("interview.templateName", state.templateName); updateSkillPreview(); }
   if (name === "我的飞书面试知识库.md") state.deletedDocuments.push(name);
   writeStorage("interview.deletedDocuments", JSON.stringify(state.deletedDocuments));
@@ -124,8 +166,8 @@ function renderRetrievalSettings(message = "") {
 function deleteGlossary() {
   state.glossary = defaultGlossary;
   state.glossaryFileName = "内置 AI 产品术语";
-  writeStorage("interview.glossary", JSON.stringify(state.glossary));
-  writeStorage("interview.glossaryFileName", state.glossaryFileName);
+  state.glossaryMarkdown = "";
+  persistGlossary();
   renderRetrievalSettings();
 }
 
@@ -144,17 +186,30 @@ function documentResultsHtml(query, sections = state.sections, route = routeAnsw
 function getScopedSections(query) {
   const projects = projectOptions().map((project) => ({ ...project, aliases: [] }));
   const resolved = resolveProjectContext({ question: query, projects, activeProjectId: state.activeProjectId });
-  if (!shouldScopeToProject(resolved, query)) return state.sections;
+  if (!shouldScopeToProject(resolved, query)) return { sections: state.sections, resolved };
   if (resolved.source === "explicit") {
     state.activeProjectId = resolved.projectId;
     writeStorage("interview.activeProjectId", resolved.projectId);
   }
-  return state.sections.filter((section) => section.project?.toLowerCase() === resolved.projectId);
+  return { sections: state.sections.filter((section) => section.project?.toLowerCase() === resolved.projectId), resolved };
+}
+
+function renderPreviousAnswer(previous) {
+  if (!previous) return "";
+  const documentAnswer = previous.documentHtml || `<p class="answer-muted">没有可用的文档库回答</p>`;
+  const llmAnswer = previous.llmHtml || `<p class="answer-muted">回答仍在生成中</p>`;
+  return `<button class="previous-answer-toggle" type="button" aria-expanded="false"><span class="previous-answer-copy"><span class="previous-answer-label">上一个问题</span><span class="previous-answer-summary">${escapeHtml(previous.question)}</span></span><span class="previous-answer-chevron" aria-hidden="true">⌄</span></button><div class="previous-answer-content"><div class="previous-answer-grid"><section><span class="section-kicker">DOCUMENT LIBRARY</span>${documentAnswer}</section><section><span class="section-kicker">LLM GENERATED</span>${llmAnswer}</section></div></div>`;
 }
 
 function renderAnswerState() {
   const current = answerState.current;
-  $("previousAnswer").innerHTML = "";
+  const previous = answerState.previous;
+  const previousAnswer = $("previousAnswer");
+  const previousKey = String(previous?.requestId || "");
+  const keepPreviousExpanded = previousAnswer.dataset.requestId === previousKey && previousAnswer.classList.contains("expanded");
+  previousAnswer.dataset.requestId = previousKey;
+  previousAnswer.innerHTML = renderPreviousAnswer(previous);
+  previousAnswer.classList.toggle("expanded", Boolean(previous) && keepPreviousExpanded);
   $("documentResults").innerHTML = current?.documentHtml || `<div class="empty-state compact"><span>✧</span><p>等待完整问题</p></div>`;
   $("llmResults").innerHTML = !current ? `<div class="empty-state compact"><span>✦</span><p>等待完整问题</p></div>` : current.llmHtml || `<div class="empty-state compact"><span>✦</span><p>正在生成回答</p><small>会按当前 Skill 自动组织表达</small></div>`;
   $("matchLabel").textContent = current ? (current.llmStatus === "loading" ? "LLM 生成中" : "当前问题") : "等待问题";
@@ -166,12 +221,15 @@ function runSearch(query, confirm = false) {
   $("transcriptText").textContent = cleanQuery || "点击“开始监听”，或在下方输入一个问题开始匹配";
   if (!cleanQuery) return;
   if (!confirm || !isConfirmedQuestion(cleanQuery)) return;
-  const scopedSections = getScopedSections(normalizedQuery);
-  const route = routeAnswer(normalizedQuery, scopedSections);
-  const previousContext = classifyTranscript(cleanQuery).followUp ? buildFollowUpContext(answerState.current) : "";
-  const current = beginQuestion(answerState, cleanQuery, documentResultsHtml(normalizedQuery, scopedSections, route), previousContext);
+  const isFollowUp = classifyTranscript(cleanQuery).followUp;
+  const scoped = getScopedSections(normalizedQuery);
+  const scope = classifyAnswerScope(normalizedQuery, { isFollowUp, projectSource: scoped.resolved.source });
+  const materials = selectAnswerMaterials({ scope, sections: scoped.sections });
+  const route = routeAnswer(normalizedQuery, materials);
+  const previousContext = scope === "followup" ? buildFollowUpContext(answerState.current) : "";
+  const current = beginQuestion(answerState, cleanQuery, documentResultsHtml(normalizedQuery, materials, route), previousContext);
   renderAnswerState();
-  generateAnswer(normalizedQuery, current.requestId, current.context || "", route.matches, selectPersonalContext(state.sections));
+  generateAnswer(normalizedQuery, current.requestId, current.context || "", route.matches, shouldUsePersonalContext(scope) ? selectPersonalContext(state.sections) : "", scope);
 }
 
 function clearPartialQuestionTimer() {
@@ -205,10 +263,10 @@ function schedulePartialQuestionCommit(text) {
   }, waitMs);
 }
 
-async function generateAnswer(query, requestId, previousContext = "", matches = [], personalContext = "") {
+async function generateAnswer(query, requestId, previousContext = "", matches = [], personalContext = "", answerScope = "general") {
   try {
     const current = { context: previousContext };
-    const requestBody = { query, context: matches, personalContext, previousContext: current.context || "", template: state.template };
+    const requestBody = { query, context: matches, personalContext, previousContext: current.context || "", template: state.template, answerScope };
     const response = await fetch("/api/generate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(requestBody) });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
@@ -319,7 +377,8 @@ function updatePrimaryListeningControl() {
 }
 
 function setDesktopStatus(message, ready = false) {
-  $("desktopAsrStatus").innerHTML = `<span class="status-dot ${ready ? "" : "error-dot"}"></span>${escapeHtml(message)}`;
+  const status = $("desktopAsrStatus");
+  if (status) status.innerHTML = `<span class="status-dot ${ready ? "" : "error-dot"}"></span>${escapeHtml(message)}`;
   if (!answerState.current) $("transcriptText").textContent = message;
 }
 
@@ -377,8 +436,8 @@ async function startDesktopAsr() {
     await context.resume();
     state.desktopAudio = { stream, context, processor, mute };
     state.desktopListening = true;
-    $("startDesktopAsrButton").disabled = true;
-    $("stopDesktopAsrButton").disabled = false;
+    if ($("startDesktopAsrButton")) $("startDesktopAsrButton").disabled = true;
+    if ($("stopDesktopAsrButton")) $("stopDesktopAsrButton").disabled = false;
     const supportsSpeakerFilter = state.voicePrintVerified || state.asrProvider === "tencent";
     setDesktopStatus(supportsSpeakerFilter ? (state.voicePrintVerified ? "全程监听已开启；腾讯云声纹过滤已启用，会忽略本人回答" : (state.ownSpeakerId === "" ? "全程监听已开启；请先完成声纹验证或确认你的 Speaker 编号" : `全程监听已开启；自动过滤 Speaker ${state.ownSpeakerId}`)) : "全程监听已开启；每个完整语句会自动检索（尚未启用本人声纹过滤）", !supportsSpeakerFilter || state.voicePrintVerified || state.ownSpeakerId !== "");
     updatePrimaryListeningControl();
@@ -400,8 +459,8 @@ async function stopDesktopAsr() {
   state.desktopListening = false;
   state.desktopStarting = false;
   await window.interviewApp?.stopAsr?.();
-  $("startDesktopAsrButton").disabled = false;
-  $("stopDesktopAsrButton").disabled = true;
+  if ($("startDesktopAsrButton")) $("startDesktopAsrButton").disabled = false;
+  if ($("stopDesktopAsrButton")) $("stopDesktopAsrButton").disabled = true;
   setDesktopStatus("已停止桌面监听");
   updatePrimaryListeningControl();
 }
@@ -412,7 +471,7 @@ function handleAsrEvent(payload) {
   if (payload.type === "error") return setDesktopStatus(payload.message || "腾讯云识别失败");
   if (payload.type === "voiceprint") {
     const label = payload.decision === "self" ? "本人声音，已忽略" : payload.decision === "other" ? "非本人声音，可继续识别问题" : "声纹不确定，按问题完整度保守处理";
-    $("speakerLive").textContent = `声纹：${label}${payload.score === null || payload.score === undefined ? "" : `（相似度 ${payload.score}）`}`;
+    if ($("speakerLive")) $("speakerLive").textContent = `声纹：${label}${payload.score === null || payload.score === undefined ? "" : `（相似度 ${payload.score}）`}`;
     return;
   }
   if (payload.type !== "result") return;
@@ -420,21 +479,24 @@ function handleAsrEvent(payload) {
   if (state.asrProvider === "doubao") sentence.sentence = removeCommittedQuestionPrefix(state.committedAsrQuestion, sentence.sentence);
   if (state.asrProvider === "doubao") sentence.sentence = extractLatestQuestionTurn(sentence.sentence);
   const ownSpeakerId = state.ownSpeakerId === "" ? null : Number(state.ownSpeakerId);
-  $("speakerLive").textContent = `${state.asrProvider === "doubao" ? "豆包" : `Speaker ${sentence.speaker_id}`} · ${sentence.sentence_type === 1 ? "最终结果" : "识别中"}：${sentence.sentence || ""}`;
+  if ($("speakerLive")) $("speakerLive").textContent = `${state.asrProvider === "doubao" ? "豆包" : `Speaker ${sentence.speaker_id}`} · ${sentence.sentence_type === 1 ? "最终结果" : "识别中"}：${sentence.sentence || ""}`;
   if (shouldDisplayAsrSentence(sentence, state.asrProvider)) $("transcriptText").textContent = sentence.sentence;
   if (state.asrProvider === "doubao") {
-    const gate = decideSpeakerGate({ verification: payload.voiceprint || "other", overlap: false, questionLike: classifyTranscript(sentence.sentence).complete });
-    if (gate === "ignore") {
-      $("speakerLive").textContent = "声纹：本人声音，已忽略，不会检索或生成答案";
+    if (!state.voicePrintVerified) {
+      if (sentence.sentence_type === 1) commitAsrQuestion(sentence.sentence);
+      else schedulePartialQuestionCommit(sentence.sentence);
       return;
     }
-    if (gate === "hold") {
-      $("speakerLive").textContent = "声纹：不确定，等待更完整的疑问句";
-      if (gate === "hold" && sentence.sentence_type !== 1) return;
-      if (sentence.sentence_type === 1 && !classifyTranscript(sentence.sentence).complete) return;
+    const gate = decideSpeakerGate({ verification: payload.voiceprint || "unknown", overlap: false, questionLike: classifyTranscript(sentence.sentence).complete });
+    if (gate === "ignore") {
+      if ($("speakerLive")) $("speakerLive").textContent = "声纹：本人声音，已忽略，不会检索或生成答案";
+      return;
     }
-    if (sentence.sentence_type === 1) commitAsrQuestion(sentence.sentence);
-    else schedulePartialQuestionCommit(sentence.sentence);
+    if (!shouldCommitVoiceprintResult({ gate, final: sentence.sentence_type === 1 })) {
+      if ($("speakerLive")) $("speakerLive").textContent = gate === "hold" ? "声纹：声纹不确定，未触发检索" : "声纹：等待完整问题";
+      return;
+    }
+    commitAsrQuestion(sentence.sentence);
     return;
   }
   if (shouldRouteAsrSentence(sentence, state.asrProvider, ownSpeakerId)) {
@@ -451,7 +513,7 @@ function pcmToBase64(pcm) {
   return btoa(binary);
 }
 
-async function captureVoiceSample(durationMs = 6000) {
+async function captureVoiceSample(durationMs = 6000, onProgress) {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   const context = new AudioContext();
   const source = context.createMediaStreamSource(stream);
@@ -464,7 +526,11 @@ async function captureVoiceSample(durationMs = 6000) {
   processor.connect(mute);
   mute.connect(context.destination);
   await context.resume();
+  onProgress?.(durationMs, 0);
+  const startedAt = Date.now();
+  const progressTimer = setInterval(() => onProgress?.(durationMs, Date.now() - startedAt), 250);
   await new Promise((resolve) => setTimeout(resolve, durationMs));
+  clearInterval(progressTimer);
   processor.disconnect();
   mute.disconnect();
   source.disconnect();
@@ -481,12 +547,49 @@ function setVoiceprintStatus(message, ready = false) {
   $("voiceprintStatus").innerHTML = `<span class="status-dot ${ready ? "" : "error-dot"}"></span>${escapeHtml(message)}`;
 }
 
+function setVoiceprintRecordingStatus(durationMs, elapsedMs = 0) {
+  const status = $("voiceprintRecordingStatus");
+  const remaining = Math.max(0, Math.ceil((durationMs - elapsedMs) / 1000));
+  status.hidden = false;
+  status.innerHTML = `<span class="recording-dot"></span>正在录音，请正常说话，还剩 ${remaining} 秒`;
+}
+
+function setVoiceprintRecordingMessage(message) {
+  const status = $("voiceprintRecordingStatus");
+  status.hidden = false;
+  status.textContent = message;
+}
+
+function renderVoiceprintGuide(config) {
+  const guide = getVoiceprintGuide(config);
+  $("voiceprintGuide").innerHTML = guide.cards.map((card, index) => `<article class="voiceprint-step${card.complete ? " complete" : ""}"><span>0${index + 1}</span><div><small>${card.title}</small><strong>${card.label}</strong></div></article>`).join("");
+  const primaryAction = $("voiceprintPrimaryAction");
+  primaryAction.hidden = !guide.primaryAction;
+  primaryAction.dataset.action = guide.primaryAction?.id || "";
+  primaryAction.textContent = guide.primaryAction?.label || "";
+  $("voiceprintArchive").hidden = !config.voicePrintId;
+  $("audioDeviceSection").hidden = !config.voicePrintConfigured;
+  $("voiceprintManagement").hidden = !config.voicePrintId;
+  $("voiceSampleButton").hidden = !config.voicePrintId;
+  $("verifyVoiceprintButton").hidden = guide.step !== "enabled";
+  $("deleteVoiceprintButton").hidden = !config.voicePrintId;
+}
+
+function openVoiceprintCredentials() {
+  document.querySelector('.settings-tab[data-settings="apiSettings"]').click();
+  $("tencentConfigFields").classList.remove("hidden");
+  $("tencentSecretId").focus();
+}
+
 async function recordAndEnrollVoiceprint() {
   const button = $("voiceSampleButton");
   button.disabled = true;
+  $("voiceprintPrimaryAction").disabled = true;
   try {
+    setVoiceprintRecordingStatus(6000);
     $("voiceSampleStatus").textContent = "正在录入 6 秒本人样本，请以正常面试音量连续说话…";
-    state.voiceSamplePcm = await captureVoiceSample();
+    state.voiceSamplePcm = await captureVoiceSample(6000, setVoiceprintRecordingStatus);
+    setVoiceprintRecordingMessage("样本已采集，正在提交腾讯云声纹注册…");
     $("voiceSampleStatus").textContent = "样本已采集，正在提交腾讯云声纹注册…";
     const response = await fetch("/api/voiceprint/enroll", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pcm16Base64: pcmToBase64(state.voiceSamplePcm) }) });
     const payload = await response.json();
@@ -494,27 +597,35 @@ async function recordAndEnrollVoiceprint() {
     $("voicePrintId").value = payload.voicePrintId;
     $("verifyVoiceprintButton").disabled = false;
     state.voicePrintVerified = false;
-    setVoiceprintStatus("样本已注册，尚未验证：请点击“验证当前样本”", false);
+    setVoiceprintStatus("样本已注册，尚未验证：请点击“验证声纹（重新录 4 秒）”", false);
     $("voiceSampleStatus").textContent = payload.message;
+    await loadAsrConfig();
   } catch (error) {
-    setVoiceprintStatus(error.message || "无法录入声纹样本", false);
+    setVoiceprintStatus(formatVoiceprintError(error.message), false);
     $("voiceSampleStatus").textContent = "录入失败：请检查麦克风权限、腾讯云服务开通状态和密钥。";
-  } finally { button.disabled = false; }
+  } finally { button.disabled = false; $("voiceprintPrimaryAction").disabled = false; }
 }
 
 async function verifyVoiceprint() {
-  if (!state.voiceSamplePcm) return setVoiceprintStatus("请先重新录入一段本人声音样本", false);
+  if (!$("voicePrintId").value) return setVoiceprintStatus("请先录入本人声纹样本", false);
   const button = $("verifyVoiceprintButton");
   button.disabled = true;
+  $("voiceprintPrimaryAction").disabled = true;
   try {
-    const response = await fetch("/api/voiceprint/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pcm16Base64: pcmToBase64(state.voiceSamplePcm) }) });
+    setVoiceprintRecordingStatus(4000);
+    $("voiceSampleStatus").textContent = "正在重新录制 4 秒独立验证样本，请以正常面试音量连续说话…";
+    state.voiceVerificationPcm = await captureVoiceSample(4000, setVoiceprintRecordingStatus);
+    setVoiceprintRecordingMessage("验证样本已采集，正在提交腾讯云确认…");
+    $("voiceSampleStatus").textContent = "验证样本已采集，正在提交腾讯云确认…";
+    const response = await withTimeout(fetch("/api/voiceprint/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pcm16Base64: pcmToBase64(state.voiceVerificationPcm) }) }), 15000, "本地声纹验证超过 15 秒没有返回，请重试");
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "声纹验证失败");
     state.voicePrintVerified = true;
     setVoiceprintStatus(`${payload.message}${payload.score === null ? "" : `（相似度 ${payload.score}）`}`, true);
     $("voiceSampleStatus").textContent = "验证成功。实时声纹门控正在接入桌面端音频切片。";
-  } catch (error) { setVoiceprintStatus(error.message || "声纹验证失败", false); }
-  button.disabled = false;
+    await loadAsrConfig();
+  } catch (error) { setVoiceprintStatus(formatVoiceprintError(error.message), false); }
+  finally { state.voiceVerificationPcm = null; button.disabled = false; $("voiceprintPrimaryAction").disabled = false; }
 }
 
 async function deleteVoiceprint() {
@@ -523,15 +634,37 @@ async function deleteVoiceprint() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "删除失败");
     state.voiceSamplePcm = null;
+    state.voiceVerificationPcm = null;
     state.voicePrintVerified = false;
     $("voicePrintId").value = "";
     $("verifyVoiceprintButton").disabled = true;
     setVoiceprintStatus("未连接声纹服务：本地绑定已删除", false);
     $("voiceSampleStatus").textContent = payload.message;
+    await loadAsrConfig();
   } catch (error) { setVoiceprintStatus(error.message || "删除失败", false); }
 }
 
 function escapeHtml(value) { return value.replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" }[char])); }
+
+function openManualQuestion() {
+  $("manualQuestionModal").classList.remove("hidden");
+  $("manualQuestionInput").focus();
+}
+
+function closeManualQuestion() {
+  $("manualQuestionModal").classList.add("hidden");
+}
+
+function submitManualQuestion() {
+  const question = $("manualQuestionInput").value.trim();
+  if (!question) return;
+  clearPartialQuestionTimer();
+  state.partialQuestionText = "";
+  state.committedAsrQuestion = question;
+  state.committedAsrAt = Date.now();
+  closeManualQuestion();
+  runSearch(question, true);
+}
 
 async function loadBundledKnowledgeBase() {
   try {
@@ -555,13 +688,20 @@ function setupModules() {
     document.querySelectorAll(".settings-panel").forEach((panel) => panel.classList.toggle("hidden", panel.id !== button.dataset.settings));
   }));
   document.addEventListener("click", (event) => { const glossaryButton = event.target.closest(".delete-glossary"); if (glossaryButton && window.confirm("确定删除当前术语表吗？")) deleteGlossary(); const deleteButton = event.target.closest(".delete-doc"); if (deleteButton && window.confirm(`确定删除“${deleteButton.dataset.doc}”吗？`)) deleteDocument(deleteButton.dataset.doc); });
+  $("previousAnswer").addEventListener("click", (event) => {
+    const toggle = event.target.closest(".previous-answer-toggle");
+    if (!toggle) return;
+    const previousAnswer = $("previousAnswer");
+    const expanded = previousAnswer.classList.toggle("expanded");
+    toggle.setAttribute("aria-expanded", String(expanded));
+  });
   $("saveAsrConfigButton").addEventListener("click", saveAsrConfig);
   $("testAsrConfigButton").addEventListener("click", testAsrConnection);
   $("saveLlmConfigButton").addEventListener("click", saveLlmConfig);
   $("testLlmConfigButton").addEventListener("click", testLlmConnection);
   $("refreshAudioDevicesButton").addEventListener("click", refreshAudioDevices);
-  $("startDesktopAsrButton").addEventListener("click", startDesktopAsr);
-  $("stopDesktopAsrButton").addEventListener("click", stopDesktopAsr);
+  $("startDesktopAsrButton")?.addEventListener("click", startDesktopAsr);
+  $("stopDesktopAsrButton")?.addEventListener("click", stopDesktopAsr);
   if (window.interviewApp?.onAsrEvent) window.interviewApp.onAsrEvent(handleAsrEvent);
   $("asrProvider").addEventListener("change", updateAsrProviderUi);
   ["aiApiUrl", "aiModel", "aiApiKey"].forEach((id) => $(id).addEventListener("input", () => {
@@ -576,9 +716,19 @@ function setupModules() {
   $("voiceSampleButton").addEventListener("click", recordAndEnrollVoiceprint);
   $("verifyVoiceprintButton").addEventListener("click", verifyVoiceprint);
   $("deleteVoiceprintButton").addEventListener("click", deleteVoiceprint);
+  $("voiceprintPrimaryAction").addEventListener("click", () => {
+    const action = $("voiceprintPrimaryAction").dataset.action;
+    if (action === "configure") return openVoiceprintCredentials();
+    if (action === "enroll") return recordAndEnrollVoiceprint();
+    if (action === "verify") return verifyVoiceprint();
+  });
   $("closeEditorButton").addEventListener("click", closeEditor);
   $("cancelEditorButton").addEventListener("click", closeEditor);
   $("saveEditorButton").addEventListener("click", saveEditor);
+  $("manualQuestionButton").addEventListener("click", openManualQuestion);
+  $("cancelManualQuestionButton").addEventListener("click", closeManualQuestion);
+  $("manualQuestionForm").addEventListener("submit", (event) => { event.preventDefault(); submitManualQuestion(); });
+  $("manualQuestionModal").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeManualQuestion(); });
   $("skillFileInput").addEventListener("change", async (event) => { await importSkillFiles(event.target.files); event.target.value = ""; });
 }
 
@@ -709,6 +859,7 @@ async function loadAsrConfig() {
     $("voicePrintId").value = config.voicePrintId || "";
     state.voicePrintVerified = Boolean(config.voicePrintVerified);
     $("verifyVoiceprintButton").disabled = !config.voicePrintId;
+    renderVoiceprintGuide(config);
     setVoiceprintStatus(
       config.voicePrintVerified ? "声纹档案已验证：实时门控需要在桌面监听中启用" : config.voicePrintId ? "声纹档案已注册，尚未验证：请重新录入样本并点击验证" : config.voicePrintConfigured ? "腾讯云密钥已保存，请录入本人声纹样本" : "未连接声纹服务：请先在语音识别页保存腾讯云密钥",
       Boolean(config.voicePrintVerified)
@@ -770,23 +921,24 @@ function saveEditor() {
   state.editingDocument.markdown = nextMarkdown;
   state.editingDocument.sections = parseMarkdown(nextMarkdown, nextName);
   if (state.editingDocument.type === "skill") { state.template = nextMarkdown; state.templateName = nextName; writeStorage("interview.template", state.template); writeStorage("interview.templateName", state.templateName); }
-  state.sections = state.documents.flatMap((doc) => doc.sections);
+  refreshSearchSections();
   persistDocuments();
   updateSkillPreview();
   renderDocuments();
   closeEditor();
 }
 
-async function importDocumentFiles(files) { for (const file of files) { state.deletedDocuments = state.deletedDocuments.filter((name) => name !== file.name); addDocument(file.name, await file.text(), $("sourceType").value); } writeStorage("interview.deletedDocuments", JSON.stringify(state.deletedDocuments)); }
+async function importDocumentFiles(files) { for (const file of files) { state.deletedDocuments = state.deletedDocuments.filter((name) => name !== file.name); addDocument(file.name, await file.text(), "knowledge"); } writeStorage("interview.deletedDocuments", JSON.stringify(state.deletedDocuments)); }
 async function importSkillFiles(files) { for (const file of files) addDocument(file.name, await file.text(), "skill"); }
 async function importGlossaryFile(file) {
   if (!file) return;
-  const glossary = parseGlossaryMarkdown(await file.text());
+  const markdown = await file.text();
+  const glossary = parseGlossaryMarkdown(markdown);
   if (!glossary.length) { renderRetrievalSettings("文件未应用：未识别到有效术语"); return; }
   state.glossary = glossary;
   state.glossaryFileName = file.name;
-  writeStorage("interview.glossary", JSON.stringify(state.glossary));
-  writeStorage("interview.glossaryFileName", state.glossaryFileName);
+  state.glossaryMarkdown = markdown;
+  persistGlossary();
   renderRetrievalSettings();
 }
 $('fileInputModule').addEventListener("change", async (event) => { await importDocumentFiles(event.target.files); event.target.value = ""; });
@@ -798,5 +950,6 @@ renderAnswerState();
 loadAsrConfig();
 void (async () => {
   await loadPersistedDocuments();
+  await loadPersistedGlossary();
   await loadBundledKnowledgeBase();
 })();

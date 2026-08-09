@@ -27,6 +27,17 @@ test("录入由腾讯云生成档案 ID，验证才携带该 ID 和标准 PCM �
   assert.equal(requests[1].body.VoicePrintId, "generated-id");
 });
 
+test("腾讯云声纹请求在 15 秒后自动超时", async () => {
+  let requestSignal;
+  const client = createVoiceprintClient({ tencentSecretId: "id", tencentSecretKey: "key" }, async (_url, options) => {
+    requestSignal = options.signal;
+    return { ok: true, json: async () => ({ Response: { Data: { Decision: 1 }, RequestId: "request-id" } }) };
+  });
+
+  await client.verify({ voicePrintId: "generated-id", pcm16: Buffer.alloc(64000) });
+  assert.ok(requestSignal);
+});
+
 test("腾讯云验证结果只把明确通过判为本人", () => {
   assert.equal(voiceprintDecision({ Data: { Decision: 1 } }), "self");
   assert.equal(voiceprintDecision({ Data: { Decision: 0 } }), "other");

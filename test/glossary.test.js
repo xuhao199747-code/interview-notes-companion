@@ -12,6 +12,12 @@ test("未配置别名的问题保持原样", () => {
   assert.equal(normalizeQuestion("介绍一下你的项目", []), "介绍一下你的项目");
 });
 
+test("AI 产品经理高频术语的 ASR 误识别始终会被纠正", () => {
+  assert.equal(normalizeQuestion("你会怎么做 AIG 系统", []), "你会怎么做 RAG 系统");
+  assert.equal(normalizeQuestion("你会怎么做 IG 系统", []), "你会怎么做 RAG 系统");
+  assert.equal(normalizeQuestion("怎么做 AIGC 产品", []), "怎么做 AIGC 产品");
+});
+
 test("从 Markdown 术语文档读取标准术语与别名", () => {
   const glossary = parseGlossaryMarkdown("# AI 术语表\n\n## RAG\n别名：IG、检索增强、知识库问答\n\n## Agent\n别名：智能体、多智能体");
   assert.deepEqual(glossary, [
@@ -29,7 +35,13 @@ test("术语表使用独立的上传和删除卡片", async () => {
   const { readFile } = await import("node:fs/promises");
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
   assert.match(html, /id="glossaryCardList"/);
   assert.match(app, /function deleteGlossary\(\)/);
   assert.match(app, /emptyUploadCard\("glossary", "glossaryFileInput"/);
+  assert.match(css, /\.delete-glossary/);
+  assert.match(app, /function loadPersistedGlossary\(\)/);
+  assert.match(app, /\/api\/glossary/);
+  assert.match(server, /request\.url === "\/api\/glossary"/);
 });

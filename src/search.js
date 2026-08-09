@@ -83,6 +83,7 @@ export function searchSections(query, sections, limit = 5) {
   if (!queryTokens.length) return [];
   const conceptTokens = expandConcepts(query);
   const intent = detectIntent(query);
+  const technicalTerms = [...new Set(query.toLowerCase().match(/[a-z][a-z0-9_-]{1,}/gu) || [])];
 
   return sections
     .map((section) => {
@@ -95,12 +96,17 @@ export function searchSections(query, sections, limit = 5) {
         return total + Math.min(titleMatches * 3 + bodyMatches, 4);
       }, 0);
       const titlePhraseBoost = section.title.length > 1 && query.includes(section.title) ? 10 : 0;
+      const technicalTermBoost = technicalTerms.reduce((total, term) => {
+        const title = section.title.toLowerCase();
+        const content = section.content.toLowerCase();
+        return total + (title.includes(term) ? 16 : content.includes(term) ? 6 : 0);
+      }, 0);
       const semanticScore = conceptTokens.reduce((total, concept) => {
         const titleMatch = section.title.includes(concept);
         const bodyMatch = section.content.includes(concept);
         return total + (titleMatch ? 4 : bodyMatch ? 2 : 0);
       }, 0);
-      const score = directScore + semanticScore + titlePhraseBoost + intentScore(intent, section);
+      const score = directScore + semanticScore + titlePhraseBoost + technicalTermBoost + intentScore(intent, section);
       const directHits = queryTokens.filter((token) => haystack.some((candidate) => candidate.includes(token))).length;
       return { ...section, score, matchType: directHits ? (semanticScore ? "hybrid" : "keyword") : "semantic" };
     })

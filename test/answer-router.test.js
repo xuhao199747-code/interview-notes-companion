@@ -39,8 +39,15 @@ test("真实知识库中项目复盘问题没有对应材料时显示空状态",
   assert.deepEqual(route.matches, []);
 });
 
+test("知识库没有 AIGC 项目资料时，不得拿 GEO 项目资料凑回答", async () => {
+  const markdown = await readFile(new URL("../interview-knowledge-base.md", import.meta.url), "utf8");
+  const route = routeAnswer("如果让你从零做一个 AIGC 项目，你会怎么开始", parseMarkdown(markdown));
+  assert.equal(route.mode, "fallback");
+  assert.deepEqual(route.matches, []);
+});
+
 test("页面归一化术语后使用回答路由来决定资料来源标签", async () => {
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   assert.match(app, /normalizeQuestion\(cleanQuery, state\.glossary\)/);
-  assert.match(app, /routeAnswer\(normalizedQuery, scopedSections\)/);
+  assert.match(app, /routeAnswer\(normalizedQuery, materials\)/);
 });

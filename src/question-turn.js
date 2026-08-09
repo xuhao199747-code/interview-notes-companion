@@ -9,6 +9,8 @@ export function extractLatestQuestionTurn(text = "") {
   if (!normalized) return "";
   const candidates = normalized.split(/[。！？?]+/u).map((item) => item.trim()).filter(Boolean);
   const lastSentence = candidates.at(-1) || normalized;
+  // “自我介绍一下”本身是一个完整意图；其中的“介绍一下”不是下一题的起点。
+  if (/^(请)?自我介绍(?:一下)?$/u.test(lastSentence)) return lastSentence;
   const starts = questionStarters
     .flatMap((starter) => [...lastSentence.matchAll(new RegExp(starter.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gu"))].map((match) => match.index))
     .filter((index) => index > 0)

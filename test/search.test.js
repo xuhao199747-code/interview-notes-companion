@@ -44,6 +44,23 @@ test("个人情况类问法应优先命中自我介绍", () => {
   assert.equal(searchSections("说说你的情况", sections, 1)[0].title, "自我介绍");
 });
 
+test("技术缩写问题优先命中标题明确的技术章节，而不是泛自我介绍", () => {
+  const sections = [
+    { title: "自我介绍", content: "我有五年产品经验，负责过多个 AI 项目，主要负责 RAG、Agent 和企业级 AI 平台建设。", project: "自我介绍" },
+    { title: "RAG 怎么做", content: "使用混合召回、重排和评测闭环。", project: "GEO" },
+  ];
+  assert.equal(searchSections("你的项目里 RAG 怎么做的", sections, 1)[0].title, "RAG 怎么做");
+});
+
+test("RAG 设计问题不能被只有“设计”泛词的归因章节抢占", () => {
+  const sections = [
+    { title: "你怎么设计的归因引擎", content: "通过指标下降定位原因。", project: "GEO" },
+    { title: "你们怎么做的 RAG", content: "使用混合召回、重排和评测闭环。", project: "GEO" },
+    { title: "自我介绍", content: "我负责过 RAG 和 Agent 项目。", project: "自我介绍" },
+  ];
+  assert.equal(searchSections("RAG 怎么设计", sections, 1)[0].title, "你们怎么做的 RAG");
+});
+
 test("指标和计算口径问题优先命中评分规则", () => {
   const sections = [
     { title: "你面对的挑战是什么", content: "客户看到品牌可见度得分后，不知道下一步怎么提升。" },

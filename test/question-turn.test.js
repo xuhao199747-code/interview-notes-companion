@@ -13,3 +13,8 @@ test("没有标点的累积转写也能切到最后一个项目问题", () => {
 test("单个问题不会被错误截断", () => {
   assert.equal(extractLatestQuestionTurn("如果让你重新做一个项目，你会怎么做"), "如果让你重新做一个项目，你会怎么做");
 });
+
+test("自我介绍不能被内部的“介绍一下”误当成新问题起点", () => {
+  assert.equal(extractLatestQuestionTurn("自我介绍一下"), "自我介绍一下");
+  assert.equal(extractLatestQuestionTurn("请自我介绍一下"), "请自我介绍一下");
+});

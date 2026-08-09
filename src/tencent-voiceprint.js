@@ -3,6 +3,7 @@ import { createHash, createHmac } from "node:crypto";
 const SERVICE = "asr";
 const HOST = "asr.tencentcloudapi.com";
 const VERSION = "2019-06-14";
+const REQUEST_TIMEOUT_MS = 15000;
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -65,6 +66,7 @@ export function createVoiceprintClient(config, fetchImpl = fetch) {
         "x-tc-timestamp": String(timestamp),
         authorization: authorization({ secretId: config.tencentSecretId, secretKey: config.tencentSecretKey, action, payload, timestamp }),
       },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       body: payload,
     });
     const data = await response.json();

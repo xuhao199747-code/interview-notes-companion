@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createAsrSession, validateAsrProviderConfig } from "../src/asr-provider.js";
 import { shouldPublishAudioProgress } from "../src/audio-progress.js";
 import { createVoiceprintClient, voiceprintDecision } from "../src/tencent-voiceprint.js";
+import { createVoiceprintAudioWindow } from "../src/voiceprint-audio-window.js";
 import { getEditionStorageName } from "../src/edition.js";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -15,15 +16,8 @@ let asrSession;
 let getRuntimeConfig;
 let startServer;
 let audioPacketCount = 0;
-let recentAudio = [];
-let recentAudioBytes = 0;
-const MAX_VOICEPRINT_BYTES = 16000 * 2 * 8;
-
-function retainRecentAudio(audio) {
-  recentAudio.push(audio);
-  recentAudioBytes += audio.length;
-  while (recentAudioBytes > MAX_VOICEPRINT_BYTES && recentAudio.length) recentAudioBytes -= recentAudio.shift().length;
-}
+const VOICEPRINT_SAMPLE_BYTES = 16000 * 2 * 4;
+const voiceprintAudio = createVoiceprintAudioWindow(VOICEPRINT_SAMPLE_BYTES);
 
 async function publishAsrPayload(config, payload) {
   if (payload.type !== "result" || !config.voicePrintVerified || !config.voicePrintId) {
@@ -34,7 +28,11 @@ async function publishAsrPayload(config, payload) {
     windowRef?.webContents.send("asr:event", { ...payload, voiceprint: "unknown" });
     return;
   }
-  const audio = Buffer.concat(recentAudio);
+  const audio = voiceprintAudio.takeLatest(VOICEPRINT_SAMPLE_BYTES);
+  if (!audio.length) {
+    windowRef?.webContents.send("asr:event", { ...payload, voiceprint: "unknown" });
+    return;
+  }
   try {
     const result = await Promise.race([
       createVoiceprintClient(config).verify({ voicePrintId: config.voicePrintId, pcm16: audio }),
@@ -78,18 +76,17 @@ ipcMain.handle("asr:start", async () => {
   if (!validation.valid) return { ok: false, error: validation.message };
   asrSession?.stop();
   audioPacketCount = 0;
-  recentAudio = [];
-  recentAudioBytes = 0;
+  voiceprintAudio.clear();
   asrSession = createAsrSession(config, (payload) => { void publishAsrPayload(config, payload); });
   asrSession.start();
   return { ok: true };
 });
-ipcMain.handle("asr:stop", async () => { asrSession?.stop(); asrSession = null; recentAudio = []; recentAudioBytes = 0; return { ok: true }; });
+ipcMain.handle("asr:stop", async () => { asrSession?.stop(); asrSession = null; voiceprintAudio.clear(); return { ok: true }; });
 ipcMain.on("asr:audio", (_event, chunk) => {
   if (!asrSession || !chunk) return;
   const audio = Buffer.from(chunk);
   if (!audio.length) return;
-  retainRecentAudio(audio);
+  voiceprintAudio.push(audio);
   audioPacketCount += 1;
   if (shouldPublishAudioProgress(audioPacketCount)) windowRef?.webContents.send("asr:event", { type: "audio", count: audioPacketCount });
   asrSession.sendAudio(audio);

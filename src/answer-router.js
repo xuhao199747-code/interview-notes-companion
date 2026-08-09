@@ -10,6 +10,9 @@ function hasCountEvidence(section) {
 
 function hasSpecificEvidence(query, section) {
   const text = `${section.title} ${section.content}`.toLowerCase();
+  // 英文技术词是强约束：不能因为“项目 / 怎么做”等泛词命中，就拿别的项目资料回答 AIGC、RAG、Agent 等问题。
+  const technicalTerms = [...new Set(query.toLowerCase().match(/[a-z][a-z0-9_-]{1,}/gu) || [])];
+  if (technicalTerms.length && technicalTerms.some((term) => !text.includes(term))) return false;
   if (/(重新.{0,8}(做|设计).{0,8}项目|重新做一个项目)/u.test(query) && !/(重新.{0,20}(做|设计|项目)|复盘|重做|回顾)/u.test(text)) return false;
   const keywords = query
     .toLowerCase()
