@@ -33,6 +33,10 @@ state.sections = state.documents.flatMap((doc) => doc.sections);
 const $ = (id) => document.getElementById(id);
 const demoMarkdown = `# 自我介绍\n我有五年产品经验，负责过从零到一的 SaaS 产品，擅长用户研究、产品规划和跨团队协作。\n\n## 项目挑战\n我通过用户访谈定位核心问题，和工程团队一起拆解方案并快速验证，最终让关键流程转化率提升了 28%。\n\n## 离职原因\n希望加入更重视用户价值和长期产品建设的团队，在更复杂的业务环境中持续成长。\n\n## 你为什么适合这个岗位\n我既能深入理解用户，也能把模糊的问题拆成清晰可执行的计划，并用数据验证结果。`;
 
+function emptyUploadCard(kind, inputId, title, hint) {
+  return `<label class="empty-module upload-drop-card" data-upload-kind="${kind}" for="${inputId}"><span>＋</span><p>${title}</p><small>${hint}</small></label>`;
+}
+
 function addDocument(name, markdown, type = "knowledge") {
   if (state.deletedDocuments.includes(name)) return;
   state.documents = state.documents.filter((doc) => doc.name !== name);
@@ -90,7 +94,7 @@ function renderDocuments() {
   if ($("knowledgeSummary")) $("knowledgeSummary").textContent = state.documents.length ? `${state.documents.length} 个资料文件已加载` : "知识库为空";
   if ($("documentList")) $("documentList").innerHTML = state.documents.filter((doc) => doc.type !== "skill").map((doc) => `<div class="doc-item"><span>▤ &nbsp;${escapeHtml(doc.name)}</span><span>${doc.sections.length} 节 <button class="delete-doc" data-doc="${escapeHtml(doc.name)}" title="删除文档">×</button></span></div>`).join("");
   const documents = state.documents.filter((doc) => doc.type !== "skill");
-  $("knowledgeGrid").innerHTML = documents.length ? documents.map((doc) => `<article class="knowledge-card"><div class="knowledge-card-icon">${escapeHtml(doc.type === "transcript" ? "稿" : "KB")}</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>${escapeHtml({ transcript: "逐字稿", knowledge: "知识库" }[doc.type] || "知识库")} · ${doc.sections.length} 个章节 · ${doc.sections.reduce((sum, section) => sum + section.content.length, 0)} 字</p></div><div class="knowledge-card-actions"><button class="delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`).join("") : `<div class="empty-module"><span>＋</span><p>还没有资料文件</p><small>上传 Markdown 或 Go 源码后会自动建立检索索引</small></div>`;
+  $("knowledgeGrid").innerHTML = documents.length ? documents.map((doc) => `<article class="knowledge-card"><div class="knowledge-card-icon">${escapeHtml(doc.type === "transcript" ? "稿" : "KB")}</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>${escapeHtml({ transcript: "逐字稿", knowledge: "知识库" }[doc.type] || "知识库")} · ${doc.sections.length} 个章节 · ${doc.sections.reduce((sum, section) => sum + section.content.length, 0)} 字</p></div><div class="knowledge-card-actions"><button class="delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`).join("") : emptyUploadCard("documents", "fileInputModule", "拖入资料文件，或点击上传", "支持 Markdown 和 Go 源码");
   renderSkillCards();
   renderRetrievalSettings();
 }
@@ -103,7 +107,7 @@ function renderSkillCards() {
     const active = doc.name === state.templateName;
     const wordCount = doc.sections.reduce((sum, section) => sum + section.content.length, 0);
     return `<article class="knowledge-card skill-card${active ? " active" : ""}"><div class="knowledge-card-icon">SK</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>回答 Skill · ${doc.sections.length} 个章节 · ${wordCount} 字${active ? ' · <span class="skill-card-badge">当前应用中</span>' : ""}</p></div><div class="knowledge-card-actions"><button class="delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`;
-  }).join("") : `<div class="empty-module"><span>＋</span><p>还没有回答 Skill</p><small>上传 Markdown 后会自动应用到 LLM 回答</small></div>`;
+  }).join("") : emptyUploadCard("skills", "skillFileInput", "拖入回答 Skill，或点击上传", "支持 Markdown，上传后自动应用");
 }
 
 function projectOptions() {
@@ -114,7 +118,7 @@ function renderRetrievalSettings(message = "") {
   const container = $("glossaryCardList");
   if (!container) return;
   const isUploaded = state.glossaryFileName !== "内置 AI 产品术语";
-  container.innerHTML = isUploaded ? `<article class="knowledge-card"><div class="knowledge-card-icon">术</div><div class="knowledge-card-body"><h3>${escapeHtml(state.glossaryFileName)}</h3><p>术语表 · ${state.glossary.length} 个术语 · 已自动应用</p></div><div class="knowledge-card-actions"><button class="delete-glossary large" type="button">删除</button></div></article>` : `<div class="empty-module"><span>＋</span><p>${escapeHtml(message || "还没有术语表")}</p><small>上传 Markdown 后会自动应用到问题检索</small></div>`;
+  container.innerHTML = isUploaded ? `<article class="knowledge-card"><div class="knowledge-card-icon">术</div><div class="knowledge-card-body"><h3>${escapeHtml(state.glossaryFileName)}</h3><p>术语表 · ${state.glossary.length} 个术语 · 已自动应用</p></div><div class="knowledge-card-actions"><button class="delete-glossary large" type="button">删除</button></div></article>` : emptyUploadCard("glossary", "glossaryFileInput", message || "拖入术语表，或点击上传", "支持 Markdown，上传后自动应用");
 }
 
 function deleteGlossary() {
@@ -541,6 +545,7 @@ async function loadBundledKnowledgeBase() {
 
 function setupModules() {
   updateSkillPreview();
+  setupDropUploads();
   document.querySelectorAll(".nav-button").forEach((button) => button.addEventListener("click", () => {
     document.querySelectorAll(".nav-button").forEach((item) => item.classList.toggle("active", item === button));
     document.querySelectorAll(".app-view").forEach((view) => view.classList.toggle("hidden", view.id !== button.dataset.view));
@@ -567,32 +572,27 @@ function setupModules() {
     $("aiModel").value = "deepseek-v4-flash";
     $("llmConfigStatus").innerHTML = '<span class="status-dot"></span>已填入 DeepSeek 示例，请填写 API Key 后保存并测试';
   });
-  $("glossaryFileInput").addEventListener("change", async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const glossary = parseGlossaryMarkdown(await file.text());
-    if (!glossary.length) {
-      renderRetrievalSettings("文件未应用：未识别到有效术语");
-      event.target.value = "";
-      return;
-    }
-    state.glossary = glossary;
-    state.glossaryFileName = file.name;
-    writeStorage("interview.glossary", JSON.stringify(state.glossary));
-    writeStorage("interview.glossaryFileName", state.glossaryFileName);
-    renderRetrievalSettings();
-    event.target.value = "";
-  });
+  $("glossaryFileInput").addEventListener("change", async (event) => { await importGlossaryFile(event.target.files[0]); event.target.value = ""; });
   $("voiceSampleButton").addEventListener("click", recordAndEnrollVoiceprint);
   $("verifyVoiceprintButton").addEventListener("click", verifyVoiceprint);
   $("deleteVoiceprintButton").addEventListener("click", deleteVoiceprint);
   $("closeEditorButton").addEventListener("click", closeEditor);
   $("cancelEditorButton").addEventListener("click", closeEditor);
   $("saveEditorButton").addEventListener("click", saveEditor);
-  $("skillFileInput").addEventListener("change", async (event) => {
-    const file = event.target.files[0];
-    if (file) addDocument(file.name, await file.text(), "skill");
-    event.target.value = "";
+  $("skillFileInput").addEventListener("change", async (event) => { await importSkillFiles(event.target.files); event.target.value = ""; });
+}
+
+function setupDropUploads() {
+  const targets = [
+    ["knowledgeGrid", importDocumentFiles],
+    ["skillCardList", importSkillFiles],
+    ["glossaryCardList", async (files) => importGlossaryFile(files[0])],
+  ];
+  targets.forEach(([id, importFiles]) => {
+    const target = $(id);
+    ["dragenter", "dragover"].forEach((type) => target.addEventListener(type, (event) => { event.preventDefault(); target.classList.add("is-dragging"); }));
+    ["dragleave", "drop"].forEach((type) => target.addEventListener(type, (event) => { event.preventDefault(); target.classList.remove("is-dragging"); }));
+    target.addEventListener("drop", async (event) => { await importFiles([...event.dataTransfer.files]); });
   });
 }
 
@@ -777,8 +777,19 @@ function saveEditor() {
   closeEditor();
 }
 
-async function importFiles(event) { for (const file of event.target.files) { state.deletedDocuments = state.deletedDocuments.filter((name) => name !== file.name); addDocument(file.name, await file.text(), $("sourceType").value); } writeStorage("interview.deletedDocuments", JSON.stringify(state.deletedDocuments)); event.target.value = ""; }
-$("fileInputModule").addEventListener("change", importFiles);
+async function importDocumentFiles(files) { for (const file of files) { state.deletedDocuments = state.deletedDocuments.filter((name) => name !== file.name); addDocument(file.name, await file.text(), $("sourceType").value); } writeStorage("interview.deletedDocuments", JSON.stringify(state.deletedDocuments)); }
+async function importSkillFiles(files) { for (const file of files) addDocument(file.name, await file.text(), "skill"); }
+async function importGlossaryFile(file) {
+  if (!file) return;
+  const glossary = parseGlossaryMarkdown(await file.text());
+  if (!glossary.length) { renderRetrievalSettings("文件未应用：未识别到有效术语"); return; }
+  state.glossary = glossary;
+  state.glossaryFileName = file.name;
+  writeStorage("interview.glossary", JSON.stringify(state.glossary));
+  writeStorage("interview.glossaryFileName", state.glossaryFileName);
+  renderRetrievalSettings();
+}
+$('fileInputModule').addEventListener("change", async (event) => { await importDocumentFiles(event.target.files); event.target.value = ""; });
 // 示例资料仍可通过知识库文件导入；问题页不再放置上传控件。
 $("micButton").addEventListener("click", toggleListening);
 setupSpeech();

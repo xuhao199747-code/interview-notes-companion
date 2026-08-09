@@ -31,4 +31,5 @@ test("术语表使用独立的上传和删除卡片", async () => {
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   assert.match(html, /id="glossaryCardList"/);
   assert.match(app, /function deleteGlossary\(\)/);
+  assert.match(app, /emptyUploadCard\("glossary", "glossaryFileInput"/);
 });
