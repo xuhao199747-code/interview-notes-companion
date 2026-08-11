@@ -9,7 +9,9 @@ function hasCountEvidence(section) {
 }
 
 function hasSpecificEvidence(query, section) {
-  const text = `${section.title} ${section.content}`.toLowerCase();
+  const text = `${section.title} ${section.project || ""} ${section.content}`.toLowerCase();
+  const differenceSubjects = getDifferenceSubjects(query);
+  if (differenceSubjects.length && !differenceSubjects.some((subject) => text.includes(subject.toLowerCase()))) return false;
   // 英文技术词是强约束：不能因为“项目 / 怎么做”等泛词命中，就拿别的项目资料回答 AIGC、RAG、Agent 等问题。
   const technicalTerms = [...new Set(query.toLowerCase().match(/[a-z][a-z0-9_-]{1,}/gu) || [])];
   if (technicalTerms.length && technicalTerms.some((term) => !text.includes(term))) return false;
@@ -25,9 +27,73 @@ function hasSpecificEvidence(query, section) {
   return new Set(matchedMeaningfulCharacters).size >= 2;
 }
 
-export function routeAnswer(query, sections) {
-  const matches = searchSections(query, sections, 3);
+function isProfileQuestion(query = "") {
+  const normalized = query.replace(/\s+/gu, "").trim();
+  return /(自我介绍|说说你的情况|介绍你的情况|介绍你的经历|个人情况|个人背景|职业经历)/u.test(normalized)
+    || /^(?:请|麻烦)?(?:给我|给咱们|给大家)?介绍(?:一下)?[。？?!！]*$/u.test(normalized);
+}
+
+function isProfileSection(section = {}) {
+  const title = String(section.title || "").trim();
+  return /(自我介绍|个人经历|职业经历|我的情况)/u.test(title)
+    || /^(自我介绍|个人经历|职业经历)$/u.test(String(section.project || "").trim());
+}
+
+function getDifferenceSubjects(query = "") {
+  const normalized = query.replace(/[？?。！!]/gu, "").trim();
+  const match = normalized.match(/^(.+?)(?:有什么|有何|是什么|什么是)?区别/u);
+  if (!match) return [];
+  return match[1]
+    .split(/(?:和|与|跟|及|、)/u)
+    .map((item) => item.replace(/^(?:你们的|你们|这个|该)/u, "").trim())
+    .filter((item) => item.length >= 2 && !/^(?:模型|产品|项目|平台)$/u.test(item));
+}
+
+function isGenericZeroToOneQuestion(query = "") {
+  const normalized = query.replace(/\s+/gu, "");
+  return /(?:从零到一|0到1).{0,12}(?:做|开发|设计).{0,12}(?:项目|产品).{0,16}(?:怎么|如何|会)/u.test(normalized)
+    || /(?:如果让你|假如让你).{0,12}(?:做|开发|设计).{0,12}(?:项目|产品).{0,16}(?:怎么|如何|会)/u.test(normalized);
+}
+
+function isProjectOverviewQuestion(query = "") {
+  const technicalTopic = /(?:RAG|Agent|Workflow|Skill|指标|评分|Prompt|评测|召回|转人工)/iu.test(query);
+  return (!technicalTopic && /(?:你这个|这个|该|你们的?|我负责的?(?:其中一个)?|我来|我给您|(?:讲讲|说说|介绍).{0,8}).{0,14}项目.{0,16}(?:怎么|如何|介绍|做|讲)?/u.test(query))
+    || (!technicalTopic && /项目.{0,16}(?:怎么做|如何做|是什么|介绍|讲讲|说说)/u.test(query))
+    || /(?:营销智能回答|营销智能问答|attrip|at\s*trip)/iu.test(query);
+}
+
+function projectOverviewMatches(sections = []) {
+  return sections
+    .filter((section) => /(?:介绍|概览).{0,30}项目|项目.{0,30}(?:介绍|概览)/u.test(String(section.title || "")))
+    .slice(0, 4)
+    .map((section) => ({ ...section, score: Math.max(section.score || 0, 20), matchType: "keyword" }));
+}
+
+function rankedMatches(query, sections, candidates) {
+  if (!Array.isArray(candidates)) return searchSections(query, sections, 4);
+  const available = new Set(sections.map((section) => `${section.source || ""}\u0000${section.project || ""}\u0000${section.title}\u0000${section.content}`));
+  return candidates
+    .filter((section) => available.has(`${section.source || ""}\u0000${section.project || ""}\u0000${section.title}\u0000${section.content}`))
+    .slice(0, 4);
+}
+
+export function routeAnswer(query, sections, { allowProjectOverview = false, candidates } = {}) {
+  if (isProfileQuestion(query)) {
+    const profileSections = sections.filter(isProfileSection);
+    if (!profileSections.length) return { mode: "fallback", matches: [], confidence: 0, reason: "没有个人经历资料" };
+    const matches = rankedMatches(query, profileSections, candidates);
+    return { mode: "direct", matches: matches.length ? matches : profileSections.slice(0, 4).map((section) => ({ ...section, score: 12, matchType: "keyword" })), confidence: 94, reason: "资料直接回答核心问题" };
+  }
+  if (isGenericZeroToOneQuestion(query)) {
+    return { mode: "fallback", matches: [], confidence: 0, reason: "通用从零到一方法论题，不引用无关项目资料" };
+  }
+  const matches = rankedMatches(query, sections, candidates);
   if (!matches.length) return { mode: "fallback", matches: [], confidence: 0, reason: "资料未命中" };
+  if (allowProjectOverview && isProjectOverviewQuestion(query)) {
+    const overview = projectOverviewMatches(sections);
+    const selected = overview.length ? overview : matches;
+    return { mode: "compose", matches: selected, confidence: Math.min(80, 50 + selected[0].score * 2), reason: "已确认当前项目，整合项目资料回答" };
+  }
   const top = matches[0];
   if (!hasSpecificEvidence(query, top)) return { mode: "fallback", matches: [], confidence: 0, reason: "只命中泛词，资料无法可靠回答" };
   const countRequired = asksForCount(query);

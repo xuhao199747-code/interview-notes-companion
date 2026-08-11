@@ -8,6 +8,70 @@ test("术语别名在检索前归一化为标准 AI 产品术语", () => {
   assert.equal(normalizeQuestion("知识库问答是怎么搭的", glossary), "RAG是怎么搭的");
 });
 
+test("默认词表覆盖核心 AI 产品术语及常见口语别名", () => {
+  assert.equal(normalizeQuestion("扣子怎么搭", defaultGlossary), "Coze怎么搭");
+  assert.equal(normalizeQuestion("知识库问答怎么评测", defaultGlossary), "RAG怎么AI 产品评测");
+  assert.equal(normalizeQuestion("智能体和工作流怎么选", defaultGlossary), "Agent和Workflow怎么选");
+  assert.equal(normalizeQuestion("工具调用的边界", defaultGlossary), "Tool的边界");
+  assert.equal(normalizeQuestion("提示词技能怎么沉淀", defaultGlossary), "Skill怎么沉淀");
+  assert.equal(normalizeQuestion("坏案例怎么回归", defaultGlossary), "AI 产品评测怎么回归");
+  assert.equal(normalizeQuestion("人工兜底怎么设计", defaultGlossary), "高风险场景怎么设计");
+});
+
+test("词表覆盖评测、GEO 与旅游智能营销的高频口语问法", () => {
+  assert.equal(normalizeQuestion("金标集怎么写", defaultGlossary), "Golden Set怎么写");
+  assert.equal(normalizeQuestion("LLM 裁判怎么做", defaultGlossary), "LLM-as-a-Judge怎么做");
+  assert.equal(normalizeQuestion("AI 概览怎么监测", defaultGlossary), "AI Overviews怎么监测");
+  assert.equal(normalizeQuestion("品牌被引用率怎么评估", defaultGlossary), "引用率怎么AI 产品评测");
+  assert.equal(normalizeQuestion("客户数据平台怎么接入", defaultGlossary), "CDP怎么接入");
+  assert.equal(normalizeQuestion("在线旅游平台怎么做分发", defaultGlossary), "OTA怎么做分发");
+});
+
+test("术语表以统一结构维护核心概念及其别名", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const markdown = await readFile(new URL("../AI产品经理术语表.md", import.meta.url), "utf8");
+  const entries = parseGlossaryMarkdown(markdown);
+  const expectedAliases = {
+    Coze: ["扣子", "字节扣子", "Coze 平台"],
+    RAG: ["检索增强生成", "检索增强", "知识库问答", "向量检索"],
+    Agent: ["智能体", "多智能体", "代理"],
+    Workflow: ["工作流", "固定流程", "编排流程"],
+    Skill: ["技能", "提示词技能", "回答规则"],
+    Tool: ["工具调用", "函数调用", "Function Calling"],
+    "AI 产品评测": ["评测", "评估", "测试集", "效果评估"],
+    "高风险场景": ["人工兜底", "人工接管", "安全护栏"],
+  };
+
+  for (const [term, aliases] of Object.entries(expectedAliases)) {
+    const entry = entries.find((item) => item.term === term);
+    assert.ok(entry, `缺少术语：${term}`);
+    for (const alias of aliases) assert.ok(entry.aliases.includes(alias), `${term} 缺少别名：${alias}`);
+  }
+
+  for (const section of ["一句话定义", "解决什么业务问题", "核心组成或实现链路", "适用场景", "不适用场景或局限", "面试时可直接口述的 1 分钟回答", "区别和关系"]) {
+    assert.match(markdown, new RegExp(`### ${section}`));
+  }
+});
+
+test("每个核心术语独立具备完整结构且不冒充个人经历", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const markdown = await readFile(new URL("../AI产品经理术语表.md", import.meta.url), "utf8");
+  const requiredSections = ["一句话定义", "解决什么业务问题", "核心组成或实现链路", "适用场景", "不适用场景或局限", "面试时可直接口述的 1 分钟回答", "区别和关系"];
+  const terms = ["Coze", "RAG", "Agent", "Workflow", "Skill", "Tool", "AI 产品评测", "高风险场景"];
+
+  for (const term of terms) {
+    const start = markdown.indexOf(`## ${term}\n`);
+    assert.notEqual(start, -1, `缺少术语：${term}`);
+    const next = markdown.indexOf("\n## ", start + 1);
+    const entry = markdown.slice(start, next === -1 ? undefined : next);
+    for (const section of requiredSections) assert.match(entry, new RegExp(`### ${section}`), `${term} 缺少结构：${section}`);
+  }
+
+  for (const prohibitedPhrase of ["我做过", "我负责过", "我们上线后"]) {
+    assert.doesNotMatch(markdown, new RegExp(prohibitedPhrase));
+  }
+});
+
 test("未配置别名的问题保持原样", () => {
   assert.equal(normalizeQuestion("介绍一下你的项目", []), "介绍一下你的项目");
 });
@@ -15,6 +79,9 @@ test("未配置别名的问题保持原样", () => {
 test("AI 产品经理高频术语的 ASR 误识别始终会被纠正", () => {
   assert.equal(normalizeQuestion("你会怎么做 AIG 系统", []), "你会怎么做 RAG 系统");
   assert.equal(normalizeQuestion("你会怎么做 IG 系统", []), "你会怎么做 RAG 系统");
+  assert.equal(normalizeQuestion("扣字怎么搭", []), "Coze怎么搭");
+  assert.equal(normalizeQuestion("介绍一下 CEO 项目的指标", []), "介绍一下 GEO 项目的指标");
+  assert.equal(normalizeQuestion("请介绍一下 GU 这个项目", []), "请介绍一下 GEO 这个项目");
   assert.equal(normalizeQuestion("怎么做 AIGC 产品", []), "怎么做 AIGC 产品");
 });
 

@@ -5,15 +5,19 @@ function compact(text) {
 export function removeCommittedQuestionPrefix(previousQuestion = "", incomingText = "") {
   const previous = compact(previousQuestion.trim());
   const incoming = incomingText.trim();
-  if (!previous || !incoming || !compact(incoming).startsWith(previous)) return incoming;
+  if (!previous || !incoming) return incoming;
 
-  let expected = 0;
-  let index = 0;
-  for (; index < incoming.length && expected < previous.length; index += 1) {
+  const compactIncoming = [];
+  const originalIndexes = [];
+  for (let index = 0; index < incoming.length; index += 1) {
     const character = incoming[index];
     if (/\s|，|,|。|！|？|!|\?/u.test(character)) continue;
-    if (character !== previous[expected]) return incoming;
-    expected += 1;
+    compactIncoming.push(character);
+    originalIndexes.push(index);
   }
-  return incoming.slice(index).replace(/^[\s，,。！？?!]+/u, "").trim() || incoming;
+  const occurrence = compactIncoming.join("").lastIndexOf(previous);
+  if (occurrence < 0) return incoming;
+
+  const endIndex = originalIndexes[occurrence + previous.length - 1] + 1;
+  return incoming.slice(endIndex).replace(/^[\s，,。！？?!]+/u, "").trim() || incoming;
 }

@@ -56,9 +56,10 @@ export function decodeDoubaoResponse(raw) {
   const data = JSON.parse(payload.toString("utf8"));
   const utterances = data.result?.utterances;
   const latestUtterance = Array.isArray(utterances) ? utterances.at(-1) : null;
-  const sentence = (latestUtterance?.text || data.result?.text)?.trim();
+  // result.text 是本次识别的完整文本；只取最后一个 utterance 会丢掉问题前半句。
+  const sentence = (data.result?.text || latestUtterance?.text)?.trim();
   if (!sentence) return [];
-  return [{ type: "result", sentence: { sentence, sentence_type: (buffer[1] & 0x02) ? 1 : 0, speaker_id: -1 } }];
+  return [{ type: "result", isCumulative: Boolean(data.result?.text), sentence: { sentence, sentence_type: (buffer[1] & 0x02) ? 1 : 0, speaker_id: -1 } }];
 }
 
 function readError(raw) {
@@ -70,20 +71,28 @@ function readError(raw) {
 }
 
 export class DoubaoAsrSession {
-  constructor(config, onEvent) {
+  constructor(config, onEvent, WebSocketImpl = WebSocket) {
     this.config = config;
     this.onEvent = onEvent;
+    this.WebSocketImpl = WebSocketImpl;
     this.socket = null;
     this.ready = false;
     this.stopped = false;
+    // 点击“识别问题”后，麦克风会先开始采集；WebSocket 建连通常还需要几十到几百毫秒。
+    // 不能在这段时间静默丢掉问题开头，否则只会识别到后半句。
+    this.pendingAudio = [];
+    this.pendingAudioBytes = 0;
+    this.maxPendingAudioBytes = 16000 * 2 * 8;
+    this.closeDelayMs = 1000;
   }
 
   start() {
     const request = createDoubaoRequest(this.config);
-    this.socket = new WebSocket(request.url, { headers: request.headers });
+    this.socket = new this.WebSocketImpl(request.url, { headers: request.headers });
     this.socket.on("open", () => {
       this.socket.send(request.firstFrame);
       this.ready = true;
+      this.flushPendingAudio();
       this.onEvent({ type: "ready" });
     });
     this.socket.on("message", (raw) => this.handleMessage(raw));
@@ -99,12 +108,31 @@ export class DoubaoAsrSession {
   }
 
   sendAudio(chunk) {
-    if (this.ready && this.socket?.readyState === WebSocket.OPEN) this.socket.send(encodeDoubaoAudioFrame(chunk));
+    const audio = Buffer.from(chunk);
+    if (!audio.length || this.stopped) return;
+    if (this.ready && this.socket?.readyState === this.WebSocketImpl.OPEN) {
+      this.socket.send(encodeDoubaoAudioFrame(audio));
+      return;
+    }
+    this.pendingAudio.push(audio);
+    this.pendingAudioBytes += audio.length;
+    while (this.pendingAudioBytes > this.maxPendingAudioBytes && this.pendingAudio.length) {
+      this.pendingAudioBytes -= this.pendingAudio.shift().length;
+    }
+  }
+
+  flushPendingAudio() {
+    if (!this.ready || this.socket?.readyState !== this.WebSocketImpl.OPEN) return;
+    this.pendingAudio.forEach((audio) => this.socket.send(encodeDoubaoAudioFrame(audio)));
+    this.pendingAudio = [];
+    this.pendingAudioBytes = 0;
   }
 
   stop() {
     this.stopped = true;
-    if (this.ready && this.socket?.readyState === WebSocket.OPEN) this.socket.send(encodeDoubaoAudioFrame(Buffer.alloc(0), true));
-    setTimeout(() => this.socket?.close(), 100);
+    this.pendingAudio = [];
+    this.pendingAudioBytes = 0;
+    if (this.ready && this.socket?.readyState === this.WebSocketImpl.OPEN) this.socket.send(encodeDoubaoAudioFrame(Buffer.alloc(0), true));
+    setTimeout(() => this.socket?.close(), this.closeDelayMs);
   }
 }

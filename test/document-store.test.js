@@ -16,3 +16,11 @@ test("资料库写入本地文件并可在新实例中恢复", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("上传 Markdown 时按顺序写入本机，并在上传完成前等待最终资料落盘", async () => {
+  const app = await (await import("node:fs/promises")).readFile(new URL("../app.js", import.meta.url), "utf8");
+
+  assert.match(app, /let documentSaveQueue = Promise\.resolve\(\)/);
+  assert.match(app, /documentSaveQueue = documentSaveQueue\.catch\(\(\) => \{\}\)\.then/);
+  assert.match(app, /async function importDocumentFiles[\s\S]*await persistDocuments\(\)/);
+});

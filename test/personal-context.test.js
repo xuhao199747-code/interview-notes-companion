@@ -11,6 +11,11 @@ test("始终从自我介绍章节提取个人经历上下文", () => {
   assert.doesNotMatch(context, /模型波动/);
 });
 
+test("带完整问法的自我介绍章节也会进入个人经历上下文", () => {
+  const context = selectPersonalContext([{ title: "请做一下自我介绍（核心优势）", content: "我负责 GEO 和旅游智能营销。" }]);
+  assert.match(context, /GEO 和旅游智能营销/);
+});
+
 test("没有个人经历章节时不虚构背景", () => {
   assert.equal(selectPersonalContext([{ title: "RAG", content: "知识库检索。" }]), "");
 });

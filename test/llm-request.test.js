@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildAnswerRequest } from "../src/llm-request.js";
 
-test("DeepSeek 实时回答关闭深度思考但保留完整口述回答长度", () => {
+test("DeepSeek 实时回答关闭深度思考，并给完整口述稿保留足够输出空间", () => {
   const request = buildAnswerRequest({ apiUrl: "https://api.deepseek.com/chat/completions", model: "deepseek-v4-flash", system: "系统", user: "问题" });
   assert.equal(request.thinking.type, "disabled");
-  assert.equal(request.max_tokens, 650);
+  assert.equal(request.max_tokens, 900);
   assert.equal(Object.hasOwn(request, "stream"), false);
   assert.equal(request.temperature, 0.2);
 });

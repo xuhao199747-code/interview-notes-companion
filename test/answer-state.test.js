@@ -72,9 +72,14 @@ test("回答请求会把上一题上下文发送给 LLM", async () => {
   assert.match(app, /previousContext: current\.context \|\| ""/);
 });
 
-test("新题页面提供可展开的上一题入口", async () => {
+test("新题页面提供可打开的上一题入口", async () => {
   const { readFile } = await import("node:fs/promises");
-  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  const [app, html] = await Promise.all([
+    readFile(new URL("../app.js", import.meta.url), "utf8"),
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+  ]);
   assert.match(app, /function renderPreviousAnswer\(previous\)/);
-  assert.match(app, /previous-answer-toggle/);
+  assert.match(html, /id="previousAnswerButton"/);
+  assert.match(app, /function showPreviousAnswer\(\)/);
+  assert.match(app, /previous-answer-close/);
 });

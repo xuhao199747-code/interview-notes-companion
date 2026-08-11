@@ -11,12 +11,12 @@ app.whenReady().then(async () => {
       nodeIntegration: false
     }
   });
-  ipcMain.once("asr:audio", (_event, chunk) => {
+  ipcMain.once("question-capture:audio", (_event, chunk) => {
     const received = Buffer.from(chunk);
     console.log(JSON.stringify({ matches: received.equals(expected), bytes: received.length }));
     app.exit(received.equals(expected) ? 0 : 1);
   });
   await window.loadURL("data:text/html,<main>ipc smoke test</main>");
-  await window.webContents.executeJavaScript("window.interviewApp.sendAudio(new Uint8Array(new Int16Array([1, -2, 300]).buffer))");
+  await window.webContents.executeJavaScript("window.interviewApp.sendQuestionCaptureAudio(new Uint8Array(new Int16Array([1, -2, 300]).buffer))");
   setTimeout(() => { console.log(JSON.stringify({ matches: false, timeout: true })); app.exit(1); }, 5000);
 });

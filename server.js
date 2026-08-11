@@ -8,11 +8,14 @@ import { buildAnswerRequest } from "./src/llm-request.js";
 import { extractSseDeltas } from "./src/llm-stream.js";
 import { createAsrSession, validateAsrProviderConfig } from "./src/asr-provider.js";
 import { formatAsrConnectionError } from "./src/asr-status.js";
-import { createVoiceprintClient, validateVoiceprintConfig } from "./src/tencent-voiceprint.js";
-import { verificationSucceeded } from "./src/voiceprint-verification.js";
 import { createDocumentStore } from "./src/document-store.js";
 import { shouldMigrateLegacyConfig } from "./src/config-migration.js";
-import { withTimeout } from "./src/request-timeout.js";
+import { createRuleStore } from "./src/rule-store.js";
+import { parseMarkdown } from "./src/search.js";
+import { createLocalSemanticIndex } from "./src/local-semantic-index.js";
+import { createSemanticWorkerClient } from "./src/semantic-worker-client.js";
+import { buildLlmContext, clipLlmText } from "./src/llm-context.js";
+import { isSafeGlobalHotkey } from "./src/global-hotkey.js";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4173);
@@ -22,8 +25,29 @@ const configStore = createConfigStore(path.join(dataDirectory, "asr-config.json"
 const legacyConfigStore = createConfigStore(path.join(root, ".local", "asr-config.json"));
 const documentStore = createDocumentStore(path.join(dataDirectory, "documents.json"));
 const glossaryStore = createDocumentStore(path.join(dataDirectory, "glossary.json"));
-const runtimeConfig = { asrProvider: process.env.ASR_PROVIDER || "browser", tencentRegion: process.env.TENCENT_REGION || "ap-guangzhou", tencentAppId: process.env.TENCENT_APP_ID || "", tencentSecretId: process.env.TENCENT_SECRET_ID || "", tencentSecretKey: process.env.TENCENT_SECRET_KEY || "", voicePrintId: process.env.VOICE_PRINT_ID || "", voicePrintVerified: false, doubaoAppId: process.env.DOUBAO_APP_ID || "", doubaoAccessToken: process.env.DOUBAO_ACCESS_TOKEN || "", doubaoResourceId: process.env.DOUBAO_RESOURCE_ID || "", doubaoEndpoint: process.env.DOUBAO_ENDPOINT || "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", aiApiUrl: process.env.AI_API_URL || "https://api.openai.com/v1/chat/completions", aiModel: process.env.AI_MODEL || "gpt-4o-mini", aiApiKey: process.env.AI_API_KEY || "" };
+// Electron 主进程不能安全加载 ONNX。桌面端通过纯 Node 子进程运行本地模型，
+// 非桌面运行仍直接使用同一套索引，资料始终不离开本机。
+const semanticIndex = process.versions.electron
+  ? createSemanticWorkerClient({ filePath: path.join(dataDirectory, "semantic-index.json") })
+  : createLocalSemanticIndex({ filePath: path.join(dataDirectory, "semantic-index.json") });
+let ruleStore;
+let answerRules = { name: "AI产品经理回答规则.md", markdown: "# AI 产品经理回答规则\n\n规则文件加载中。" };
+// 这是不可被用户上传的规则文件覆盖的产品底线；Skill 只负责组织表达。
+const answerScopePolicy = `你是 AI 产品经理面试资料补充助手。
+回答范围优先级最高：根据请求中的“回答范围”决定是否可以使用候选人经历、项目资料和追问上下文。
+回答 Skill 只能规定表达结构、篇幅和语气，不能改变回答范围，也不能要求把个人经历或具体项目强行带入通用方法论题。
+当回答范围是“通用方法论”时，禁止写“我在某项目做过”或虚构候选人实践；只能给出通用、可执行的方法论。
+通用方法论使用“可以、建议、我会”表达方案、判断与取舍；“我会”只表示当前假设下的做法，不能表示已发生的候选人经历、结果或功劳。
+通用题可以引用命中资料中的机制和做法，但必须先移除项目、公司、人物和指标归属，不能把资料中的项目事实改写成候选人的通用实践。
+需要谈效果时，应区分离线评测与线上指标：评测集、Rubric、Badcase 和回归用于验证离线质量，线上指标只用于观察真实使用效果；不能将离线结论说成线上收益，不能编造数值。
+高风险决策应以权威数据和明确版本为准，说明规则、模型与人工的分工；对低置信度、证据不足、越权或无法核验的信息，应拒答或说明资料不足并转人工接管，保留必要的审计记录。
+当没有可靠命中资料时，要明确资料不足，不得借用无关项目、无关经历或上一题内容。`;
+const runtimeConfig = { asrProvider: process.env.ASR_PROVIDER || "browser", tencentRegion: process.env.TENCENT_REGION || "ap-guangzhou", tencentAppId: process.env.TENCENT_APP_ID || "", tencentSecretId: process.env.TENCENT_SECRET_ID || "", tencentSecretKey: process.env.TENCENT_SECRET_KEY || "", questionCaptureHotkey: "Alt+Space", doubaoAppId: process.env.DOUBAO_APP_ID || "", doubaoAccessToken: process.env.DOUBAO_ACCESS_TOKEN || "", doubaoResourceId: process.env.DOUBAO_RESOURCE_ID || "", doubaoEndpoint: process.env.DOUBAO_ENDPOINT || "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", aiApiUrl: process.env.AI_API_URL || "https://api.openai.com/v1/chat/completions", aiModel: process.env.AI_MODEL || "gpt-4o-mini", aiApiKey: process.env.AI_API_KEY || "" };
 const contentTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".md": "text/markdown; charset=utf-8" };
+
+function isValidQuestionCaptureHotkey(value) {
+  return typeof value === "string" && isSafeGlobalHotkey(value);
+}
 
 function sendJson(response, status, payload) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
@@ -31,23 +55,80 @@ function sendJson(response, status, payload) {
 }
 
 async function readBody(request) {
-  let body = "";
-  for await (const chunk of request) body += chunk;
-  return JSON.parse(body || "{}");
+  const chunks = [];
+  for await (const chunk of request) chunks.push(Buffer.from(chunk));
+  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 }
 
 async function getDocuments(response) {
   sendJson(response, 200, { documents: await documentStore.load() });
 }
 
+function sectionsFromDocuments(documents = []) {
+  return documents
+    .filter((document) => document?.type !== "skill")
+    .flatMap((document) => parseMarkdown(document.markdown || "", document.name || "未命名资料"));
+}
+
+// 语义模型并不天然理解口语省略（如“给我介绍一下”省略了“我自己”）。
+// 这里补的是检索意图锚点，不替代原始问题，也不生成或篡改资料内容。
+function semanticQueryFor(query = "") {
+  const anchors = [];
+  if (/(?:自我介绍|给我介绍|介绍一下(?:你|自己)?|讲讲(?:你|自己|背景)|个人背景|职业经历|为什么适合)/u.test(query)) {
+    anchors.push("自我介绍 个人经历 职业背景 核心优势 项目经历 为什么适合岗位");
+  }
+  if (/(?:困难|难点|挑战|阻碍|卡点)/u.test(query)) anchors.push("项目难点 挑战 问题 如何解决");
+  if (/(?:CEO|高层|老板|商业价值|ROI)/iu.test(query)) anchors.push("CEO 高层视角 商业价值 ROI 战略 决策");
+  if (/(?:知识库|检索).{0,10}(?:怎么|如何|设计|搭建|构建)|(?:怎么|如何|设计|搭建|构建).{0,10}(?:知识库|检索)/u.test(query)) {
+    anchors.push("RAG 知识库 切片 Metadata 混合召回 Rerank 引用 评测");
+  }
+  if (/(?:转人工|人工接管|人工兜底|低置信度|高风险|护栏)/u.test(query)) {
+    anchors.push("高风险场景 置信度 拒答 人工接管 审计 Workflow");
+  }
+  if (/(?:评测|评估|Bad\s?Case|准确率|召回率|重排|效果)/iu.test(query)) {
+    anchors.push("AI 产品评测 数据集 Rubric Bad Case Trace 回归集 离线评测 线上指标");
+  }
+  if (/(?:项目).{0,12}(?:介绍|讲讲|说说|怎么做|是什么)|(?:介绍|讲讲|说说).{0,12}(?:项目)/u.test(query)) {
+    anchors.push("项目背景 业务问题 用户痛点 产品方案 技术架构 个人职责 指标结果 复盘");
+  }
+  return [query, ...anchors].join("\n");
+}
+
 async function saveDocuments(request, response) {
   const input = await readBody(request);
-  sendJson(response, 200, { documents: await documentStore.save(input.documents) });
+  const documents = await documentStore.save(input.documents);
+  // 上传时先在本机完成建索引；后续提问只需要计算问题本身的向量。
+  let semantic = { available: true, error: null };
+  try { await semanticIndex.index(sectionsFromDocuments(documents)); } catch (error) { semantic = { available: false, error: error.message }; }
+  sendJson(response, 200, { documents, semantic });
+}
+
+async function retrieveDocuments(request, response) {
+  const input = await readBody(request);
+  const query = typeof input.query === "string" ? input.query.trim() : "";
+  if (!query) return sendJson(response, 400, { error: "问题不能为空" });
+  const sections = Array.isArray(input.sections)
+    ? input.sections.slice(0, 500).filter((section) => section && typeof section.title === "string" && typeof section.content === "string")
+    : sectionsFromDocuments(await documentStore.load());
+  let matches = [];
+  let semantic = { available: true, error: null };
+  try { matches = await semanticIndex.search(semanticQueryFor(query), sections, 20); } catch (error) { semantic = { available: false, error: error.message }; }
+  sendJson(response, 200, { matches, semantic });
 }
 
 async function getGlossary(response) {
   const [glossary] = await glossaryStore.load();
   sendJson(response, 200, { glossary: glossary || null });
+}
+
+function getRules(response) {
+  sendJson(response, 200, answerRules);
+}
+
+async function saveRules(request, response) {
+  const input = await readBody(request);
+  answerRules = await ruleStore.save({ name: input.name, markdown: input.markdown });
+  sendJson(response, 200, answerRules);
 }
 
 async function saveGlossary(request, response) {
@@ -68,13 +149,14 @@ async function generateAnswer(request, response) {
   const llmValidation = validateLlmConfig({ apiUrl: runtimeConfig.aiApiUrl, model: runtimeConfig.aiModel, apiKey: runtimeConfig.aiApiKey });
   if (!llmValidation.valid) return sendJson(response, 503, { error: llmValidation.message });
   const input = await readBody(request);
-  const context = (input.context || []).slice(0, 5).map((item) => `【${item.project ? `${item.project} / ` : ""}${item.title}】\n${item.content}`).join("\n\n");
-  const personalContext = typeof input.personalContext === "string" ? input.personalContext.slice(0, 8000) : "";
-  const previousContext = typeof input.previousContext === "string" ? input.previousContext.slice(0, 8000) : "";
+  // 逐字稿会把背景、方案、结果和追问拆成多段；保留四段足量命中资料，避免二次截断。
+  const context = buildLlmContext(input.context || []);
+  const personalContext = typeof input.personalContext === "string" ? clipLlmText(input.personalContext, 1400) : "";
+  const previousContext = typeof input.previousContext === "string" ? clipLlmText(input.previousContext, 900) : "";
   const answerScope = ["general", "experience", "project", "followup"].includes(input.answerScope) ? input.answerScope : "general";
-  const template = input.template || "结论\n背景\n具体行动\n结果\n复盘";
-  const system = "你是 AI 产品经理面试资料补充助手。回答范围优先级最高，上传的回答 Skill 只能规定表达结构，不能改变回答范围。只有明确询问候选人本人、本人项目、本人经历，或带有已确认项目的追问，才是经历/项目题。‘你会怎么做 RAG 系统’、‘怎么设计 AIGC 产品’中的‘你’只是提问语气，仍属于通用方法论，绝不能引用候选人经历。通用技术题默认从业务目标、用户/场景、产品方案、AI 能力与技术取舍、指标和迭代闭环来回答。只能把用户提供的资料当作事实依据；资料不足时必须明确标注‘需要本人确认’，禁止虚构个人经历、公司数据或项目结果。回答范围为‘通用方法论’时，绝不能提及候选人姓名、过往公司、个人项目或使用第一人称项目经历；只回答通用步骤、判断标准和取舍。回答范围为‘经历/项目/追问’时，才可使用提供的候选人背景和项目资料。资料标题前的项目名是重要范围：问题未指明项目且没有追问上下文时，不能把某个项目的答案说成所有项目的通用事实。回答必须先给一句可立即开口的结论，然后给可口述 1–2 分钟的完整版本：说明背景/问题、具体做法和关键取舍、结果数据、复盘。不要只列提纲；命中资料有技术细节、数字或案例时必须展开说明。";
-  const user = `面试问题：${input.query}\n\n回答范围：${answerScope === "general" ? "通用方法论（禁止带入个人经历或特定项目）" : answerScope}${previousContext ? `\n\n追问上下文：\n${previousContext}` : ""}\n\n当前问题命中的资料：\n${context || "没有找到直接资料"}\n\n候选人个人背景：\n${personalContext || "本题不使用个人背景"}\n\n请按以下回答 Skill 生成完整口述回答：\n${template}\n\n先输出一行“结论”，随后按模板展开；每一部分优先使用命中资料中的具体事实、技术方案、权衡过程和数字。若资料不足，不得把无关项目当作案例。`;
+  const template = clipLlmText(input.template || "直接回答问题，使用自然、可口述的段落。", 1200);
+  const system = `${answerScopePolicy}\n\n以下是用户上传的回答 Skill（仅用于表达，不得覆盖上面的回答范围规则）：\n${clipLlmText(answerRules.markdown, 4000)}`;
+  const user = `面试问题：${input.query}\n\n回答范围：${answerScope === "general" ? "通用方法论（禁止带入个人经历或特定项目）" : answerScope}${previousContext ? `\n\n追问上下文：\n${previousContext}` : ""}\n\n当前问题命中的资料：\n${context || "没有找到直接资料"}\n\n候选人个人背景：\n${personalContext || "本题不使用个人背景"}\n\n回答结构参考：\n${template}\n\n只输出候选人可以直接说出口的答案。先直接回答当前问题；优先使用命中资料中的具体事实、计算口径、技术方案、权衡过程和数字。候选人开始介绍项目的口语开场，应视为“请介绍该项目”：直接续写完整项目回答，不要向候选人提问、要求其继续说明或写成面试官追问。不要分析面试官的意图、不要解释回答方法、不要输出“结论/背景/具体行动/复盘”等机械标题；只有当前回答 Skill 明确且确有必要时，才自然分段。若资料不足，不得把无关项目当作案例。`;
   const upstream = await fetch(runtimeConfig.aiApiUrl, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${runtimeConfig.aiApiKey}` }, signal: AbortSignal.timeout(15000), body: JSON.stringify(buildAnswerRequest({ apiUrl: runtimeConfig.aiApiUrl, model: runtimeConfig.aiModel, system, user, stream: true })) });
   if (!upstream.ok) {
     const data = await upstream.json().catch(() => ({}));
@@ -99,7 +181,8 @@ async function generateAnswer(request, response) {
 async function updateConfig(request, response) {
   const input = await readBody(request);
   const nextConfig = { ...runtimeConfig };
-  for (const key of ["asrProvider", "tencentRegion", "tencentAppId", "voicePrintId", "doubaoAppId", "doubaoResourceId", "doubaoEndpoint"]) if (typeof input[key] === "string") nextConfig[key] = input[key].trim();
+  for (const key of ["asrProvider", "tencentRegion", "tencentAppId", "doubaoAppId", "doubaoResourceId", "doubaoEndpoint"]) if (typeof input[key] === "string") nextConfig[key] = input[key].trim();
+  if (isValidQuestionCaptureHotkey(input.questionCaptureHotkey || input.questionHotkey)) nextConfig.questionCaptureHotkey = (input.questionCaptureHotkey || input.questionHotkey).trim();
   if (typeof input.tencentSecretId === "string" && input.tencentSecretId.trim()) nextConfig.tencentSecretId = input.tencentSecretId.trim();
   if (typeof input.tencentSecretKey === "string" && input.tencentSecretKey.trim()) nextConfig.tencentSecretKey = input.tencentSecretKey.trim();
   if (typeof input.doubaoAccessToken === "string" && input.doubaoAccessToken.trim()) nextConfig.doubaoAccessToken = input.doubaoAccessToken.trim();
@@ -119,49 +202,7 @@ async function updateConfig(request, response) {
 
 function configPayload(llmValidation = validateLlmConfig({ apiUrl: runtimeConfig.aiApiUrl, model: runtimeConfig.aiModel, apiKey: runtimeConfig.aiApiKey })) {
   const asrValidation = validateAsrProviderConfig(runtimeConfig);
-  const voiceprintValidation = validateVoiceprintConfig(runtimeConfig);
-  return { configured: runtimeConfig.asrProvider === "browser" ? false : asrValidation.valid, provider: runtimeConfig.asrProvider, region: runtimeConfig.tencentRegion, appId: runtimeConfig.tencentAppId, secretId: runtimeConfig.tencentSecretId ? "已保存" : "未配置", secretKey: runtimeConfig.tencentSecretKey ? "已保存" : "未配置", voicePrintId: runtimeConfig.voicePrintId, voicePrintConfigured: voiceprintValidation.valid, voicePrintVerified: Boolean(runtimeConfig.voicePrintVerified), doubaoAppId: runtimeConfig.doubaoAppId, doubaoAccessToken: runtimeConfig.doubaoAccessToken ? "已保存" : "未配置", doubaoResourceId: runtimeConfig.doubaoResourceId, doubaoEndpoint: runtimeConfig.doubaoEndpoint, asrValid: asrValidation.valid, asrMessage: asrValidation.message, llmConfigured: Boolean(runtimeConfig.aiApiKey), llmValid: llmValidation.valid, llmMessage: llmValidation.message, aiApiUrl: runtimeConfig.aiApiUrl, aiModel: runtimeConfig.aiModel, aiApiKey: runtimeConfig.aiApiKey ? "已保存" : "未配置" };
-}
-
-function pcmFromInput(input) {
-  if (typeof input.pcm16Base64 !== "string" || !input.pcm16Base64) throw new Error("请先录入至少 3 秒的本人声音样本");
-  const pcm = Buffer.from(input.pcm16Base64, "base64");
-  if (pcm.length < 16000 * 2 * 2) throw new Error("声音样本太短，请录入至少 2 秒的清晰语音");
-  return pcm;
-}
-
-async function enrollVoiceprint(request, response) {
-  const input = await readBody(request);
-  const result = await createVoiceprintClient(runtimeConfig).enroll({ speakerNick: input.speakerNick || "面试资料伴侣本人", pcm16: pcmFromInput(input) });
-  const voicePrintId = result.Data?.VoicePrintId;
-  if (!voicePrintId) throw new Error("腾讯云没有返回声纹档案 ID，请检查声纹服务是否已开通");
-  runtimeConfig.voicePrintId = voicePrintId;
-  runtimeConfig.voicePrintVerified = false;
-  await configStore.save(runtimeConfig);
-  sendJson(response, 200, { ok: true, voicePrintId, message: "声纹样本已提交腾讯云，请再执行一次验证测试确认可用", requestId: result.RequestId });
-}
-
-async function verifyVoiceprint(request, response) {
-  const input = await readBody(request);
-  if (!runtimeConfig.voicePrintId) return sendJson(response, 400, { error: "请先成功录入本人声纹样本" });
-  const result = await withTimeout(
-    createVoiceprintClient(runtimeConfig).verify({ voicePrintId: runtimeConfig.voicePrintId, pcm16: pcmFromInput(input) }),
-    15000,
-    "腾讯云声纹验证超过 15 秒没有响应，请检查网络或腾讯云服务状态后重试",
-  );
-  const verified = verificationSucceeded(result);
-  runtimeConfig.voicePrintVerified = verified;
-  await configStore.save(runtimeConfig);
-  if (!verified) return sendJson(response, 422, { error: "声纹验证未通过，请使用更清晰、时长更长的本人样本重新录入" });
-  sendJson(response, 200, { ok: true, message: "声纹验证通过，本人过滤已可用于桌面监听", score: result.Data?.Score ?? null, requestId: result.RequestId });
-}
-
-async function deleteVoiceprint(response) {
-  if (runtimeConfig.voicePrintId) await createVoiceprintClient(runtimeConfig).delete(runtimeConfig.voicePrintId);
-  runtimeConfig.voicePrintId = "";
-  runtimeConfig.voicePrintVerified = false;
-  await configStore.save(runtimeConfig);
-  sendJson(response, 200, { ok: true, message: "已删除腾讯云声纹档案和本地绑定" });
+  return { configured: runtimeConfig.asrProvider === "browser" ? false : asrValidation.valid, provider: runtimeConfig.asrProvider, region: runtimeConfig.tencentRegion, appId: runtimeConfig.tencentAppId, secretId: runtimeConfig.tencentSecretId ? "已保存" : "未配置", secretKey: runtimeConfig.tencentSecretKey ? "已保存" : "未配置", questionCaptureHotkey: runtimeConfig.questionCaptureHotkey, doubaoAppId: runtimeConfig.doubaoAppId, doubaoAccessToken: runtimeConfig.doubaoAccessToken ? "已保存" : "未配置", doubaoResourceId: runtimeConfig.doubaoResourceId, doubaoEndpoint: runtimeConfig.doubaoEndpoint, asrValid: asrValidation.valid, asrMessage: asrValidation.message, llmConfigured: Boolean(runtimeConfig.aiApiKey), llmValid: llmValidation.valid, llmMessage: llmValidation.message, aiApiUrl: runtimeConfig.aiApiUrl, aiModel: runtimeConfig.aiModel, aiApiKey: runtimeConfig.aiApiKey ? "已保存" : "未配置" };
 }
 
 function configStatus(response) {
@@ -203,20 +244,20 @@ async function testAsrConnection(response) {
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "POST" && request.url === "/api/generate") return await generateAnswer(request, response);
+    if (request.method === "POST" && request.url === "/api/retrieve") return await retrieveDocuments(request, response);
     if (request.method === "GET" && request.url === "/api/documents") return await getDocuments(response);
     if (request.method === "PUT" && request.url === "/api/documents") return await saveDocuments(request, response);
     if (request.method === "GET" && request.url === "/api/glossary") return await getGlossary(response);
     if (request.method === "PUT" && request.url === "/api/glossary") return await saveGlossary(request, response);
     if (request.method === "DELETE" && request.url === "/api/glossary") return await deleteGlossary(response);
+    if (request.method === "GET" && request.url === "/api/rules") return getRules(response);
+    if (request.method === "PUT" && request.url === "/api/rules") return await saveRules(request, response);
     if (request.method === "POST" && request.url === "/api/config") return await updateConfig(request, response);
     if (request.method === "POST" && request.url === "/api/llm/test") return await testLlmConnection(response);
     if (request.method === "POST" && request.url === "/api/asr/test") return await testAsrConnection(response);
-    if (request.method === "POST" && request.url === "/api/voiceprint/enroll") return await enrollVoiceprint(request, response);
-    if (request.method === "POST" && request.url === "/api/voiceprint/verify") return await verifyVoiceprint(request, response);
-    if (request.method === "DELETE" && request.url === "/api/voiceprint/profile") return await deleteVoiceprint(response);
     if (request.method === "GET" && request.url === "/api/config") return configStatus(response);
     if (request.method !== "GET") return sendJson(response, 405, { error: "Method not allowed" });
-    const requested = request.url === "/" ? "/index.html" : request.url.split("?")[0];
+    const requested = decodeURIComponent(request.url === "/" ? "/index.html" : request.url.split("?")[0]);
     const filePath = path.resolve(root, `.${requested}`);
     if (!filePath.startsWith(root)) return sendJson(response, 403, { error: "Forbidden" });
     const data = await fs.readFile(filePath);
@@ -233,6 +274,9 @@ let loadedConfig = false;
 export async function startServer(listenPort = port) {
   if (server.listening) return server;
   if (!loadedConfig) {
+    const defaultRules = { name: "AI产品经理回答规则.md", markdown: await fs.readFile(path.join(root, "assets", "AI产品经理回答规则.md"), "utf8") };
+    ruleStore = createRuleStore(path.join(dataDirectory, "answer-rules.json"), defaultRules);
+    answerRules = await ruleStore.load();
     const saved = await configStore.load();
     if (dataDirectory !== path.join(root, ".local")) {
       const legacy = await legacyConfigStore.load();
@@ -241,7 +285,7 @@ export async function startServer(listenPort = port) {
         await configStore.save(saved);
       }
     }
-    const envNames = { asrProvider: "ASR_PROVIDER", tencentRegion: "TENCENT_REGION", tencentAppId: "TENCENT_APP_ID", tencentSecretId: "TENCENT_SECRET_ID", tencentSecretKey: "TENCENT_SECRET_KEY", voicePrintId: "VOICE_PRINT_ID", voicePrintVerified: "VOICE_PRINT_VERIFIED", doubaoAppId: "DOUBAO_APP_ID", doubaoAccessToken: "DOUBAO_ACCESS_TOKEN", doubaoResourceId: "DOUBAO_RESOURCE_ID", doubaoEndpoint: "DOUBAO_ENDPOINT", aiApiUrl: "AI_API_URL", aiModel: "AI_MODEL", aiApiKey: "AI_API_KEY" };
+    const envNames = { asrProvider: "ASR_PROVIDER", tencentRegion: "TENCENT_REGION", tencentAppId: "TENCENT_APP_ID", tencentSecretId: "TENCENT_SECRET_ID", tencentSecretKey: "TENCENT_SECRET_KEY", doubaoAppId: "DOUBAO_APP_ID", doubaoAccessToken: "DOUBAO_ACCESS_TOKEN", doubaoResourceId: "DOUBAO_RESOURCE_ID", doubaoEndpoint: "DOUBAO_ENDPOINT", aiApiUrl: "AI_API_URL", aiModel: "AI_MODEL", aiApiKey: "AI_API_KEY" };
     for (const key of Object.keys(runtimeConfig)) if (!process.env[envNames[key]]) runtimeConfig[key] = saved[key] ?? runtimeConfig[key];
     loadedConfig = true;
   }
@@ -252,6 +296,8 @@ export async function startServer(listenPort = port) {
       resolve();
     });
   });
+  // 已存在的资料也需要在桌面首次启动后建立索引；失败时不阻塞 App，查询接口会明确降级。
+  void documentStore.load().then((documents) => semanticIndex.index(sectionsFromDocuments(documents))).catch(() => {});
   const address = server.address();
   console.log(`面试资料伴侣运行在 http://127.0.0.1:${address.port}`);
   return server;

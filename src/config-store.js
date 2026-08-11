@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { normalizeQuestionCaptureConfig } from "./question-capture/config.js";
 
 const defaultConfig = {
   asrProvider: "browser",
@@ -7,8 +8,7 @@ const defaultConfig = {
   tencentAppId: "",
   tencentSecretId: "",
   tencentSecretKey: "",
-  voicePrintId: "",
-  voicePrintVerified: false,
+  questionCaptureHotkey: "Alt+Space",
   doubaoAppId: "",
   doubaoAccessToken: "",
   doubaoResourceId: "",
@@ -18,19 +18,28 @@ const defaultConfig = {
   aiApiKey: ""
 };
 
+function normalizeConfig(config = {}) {
+  const known = Object.fromEntries(
+    Object.keys(defaultConfig)
+      .filter((key) => key !== "questionCaptureHotkey")
+      .map((key) => [key, config[key] ?? defaultConfig[key]])
+  );
+  return { ...known, ...normalizeQuestionCaptureConfig(config) };
+}
+
 export function createConfigStore(filePath) {
   return {
     async load() {
       try {
         const saved = JSON.parse(await fs.readFile(filePath, "utf8"));
-        return { ...defaultConfig, ...saved };
+        return normalizeConfig(saved);
       } catch {
-        return { ...defaultConfig };
+        return normalizeConfig();
       }
     },
     async save(config) {
       await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, JSON.stringify({ ...defaultConfig, ...config }, null, 2), "utf8");
+      await fs.writeFile(filePath, JSON.stringify(normalizeConfig(config), null, 2), "utf8");
     }
   };
 }
