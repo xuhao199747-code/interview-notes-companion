@@ -7,6 +7,12 @@ function shiftHeadings(markdown, levels = 2) {
   return markdown.replace(/^(#{1,6})(\s+)/gmu, (_all, hashes, gap) => `${"#".repeat(Math.min(6, hashes.length + levels))}${gap}`);
 }
 
+function currentSnapshot(markdown) {
+  const match = markdown.match(/^## 当前飞书版本[^\n]*\n\n>[^\n]*\n\n([\s\S]*?)(?=^## 历史飞书版本)/mu);
+  assert.ok(match, "原始资料需要明确标出当前飞书快照与历史快照的边界");
+  return match[1].trim();
+}
+
 const bundles = [
   ["../面试知识库-GEO品牌增长平台.md", "../GEO项目梳理-大王版.md"],
   ["../面试知识库-旅游智能营销.md", "../旅游场景.md"],
@@ -20,7 +26,10 @@ for (const [bundlePath, sourcePath] of bundles) {
       readFile(new URL(sourcePath, import.meta.url), "utf8"),
     ]);
     assert.match(bundle, /完整原文资料（逐条保留）|完整面试问题原文说明/);
-    assert.ok(bundle.includes(shiftHeadings(source.trim())), "原文内容不应被精选摘要替代或遗漏");
+    const preserved = sourcePath.includes("AI产品经理面试问题")
+      ? bundle.includes(currentSnapshot(source))
+      : bundle.includes(shiftHeadings(source.trim()));
+    assert.ok(preserved, "原文内容不应被精选摘要替代或遗漏");
   });
 }
 

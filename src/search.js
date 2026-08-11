@@ -8,7 +8,7 @@ export function parseMarkdown(markdown, fileName = "未命名文档") {
   for (const rawLine of lines) {
     const heading = rawLine.match(/^(#{1,6})\s+(.+?)\s*#*$/);
     if (heading) {
-      if (current.body.join(" ").trim()) sections.push(finalizeSection(current));
+      if (current.body.join(" ").trim()) sections.push(...finalizeSection(current));
       if (heading[1].length === 1) activeProject = heading[2].trim();
       // 完整原文档案用于项目题和追问取证，但不能污染“如何设计 Agent”这类通用题。
       if (/(完整原文资料|完整面试问题原文说明)/u.test(heading[2])) inArchive = true;
@@ -17,13 +17,67 @@ export function parseMarkdown(markdown, fileName = "未命名文档") {
       current.body.push(rawLine.replace(/^\s*[-*+]\s+/, "").trim());
     }
   }
-  if (current.body.join(" ").trim()) sections.push(finalizeSection(current));
+  if (current.body.join(" ").trim()) sections.push(...finalizeSection(current));
   return sections;
 }
 
+const MAX_SECTION_CHARS = 1600;
+
+function splitParagraph(paragraph = "", limit = MAX_SECTION_CHARS) {
+  if (paragraph.length <= limit) return [paragraph];
+  const sentences = paragraph.match(/[^。！？；!?;]+[。！？；!?;]?/gu) || [paragraph];
+  const chunks = [];
+  let current = "";
+  for (const sentence of sentences) {
+    if (sentence.length > limit) {
+      if (current) chunks.push(current);
+      for (let offset = 0; offset < sentence.length; offset += limit) chunks.push(sentence.slice(offset, offset + limit));
+      current = "";
+    } else if ((current + sentence).length > limit) {
+      if (current) chunks.push(current);
+      current = sentence;
+    } else {
+      current += sentence;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function splitContent(content = "") {
+  const paragraphs = content
+    .split(/\n\s*\n/gu)
+    .map((paragraph) => paragraph.replace(/\s+/gu, " ").trim())
+    .filter(Boolean)
+    .flatMap((paragraph) => splitParagraph(paragraph));
+  const chunks = [];
+  let current = "";
+  for (const paragraph of paragraphs) {
+    if (!current) current = paragraph;
+    else if ((current.length + paragraph.length + 1) <= MAX_SECTION_CHARS) current += ` ${paragraph}`;
+    else {
+      chunks.push(current);
+      current = paragraph;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 function finalizeSection(section) {
-  const content = section.body.join(" ").replace(/\s+/g, " ").trim();
-  return { title: section.title, level: section.level, project: section.project, source: section.source, archive: Boolean(section.archive), content, text: `${section.title} ${content}` };
+  const content = section.body.join("\n").trim();
+  const chunks = splitContent(content);
+  return chunks.map((chunk, index) => ({
+    title: section.title,
+    level: section.level,
+    project: section.project,
+    source: section.source,
+    archive: Boolean(section.archive),
+    chunkIndex: index,
+    chunkCount: chunks.length,
+    content: chunk,
+    text: `${section.title} ${chunk}`,
+  }));
 }
 
 function tokenize(input) {

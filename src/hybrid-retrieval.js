@@ -18,6 +18,14 @@ export function mergeHybridCandidates(query, sections = [], semanticMatches = []
       rankingScore: Math.min(1, lexical.score / 60) * 0.52 + (semantic?.semanticScore || 0) * 0.48,
     });
   }
+  // 词面已能准确定位时，向量只负责给这些候选加权；不允许从上万字资料中另拉一段
+  // “语义相似”的内容插队。否则项目名、技术词都正确的问题仍会答到功能表或需求池。
+  if (lexicalMatches.length) {
+    return [...merged.values()]
+      .sort((left, right) => right.rankingScore - left.rankingScore)
+      .slice(0, limit)
+      .map(({ rankingScore, ...candidate }) => candidate);
+  }
   for (const semantic of semanticMatches) {
     const key = candidateKey(semantic);
     if (merged.has(key)) continue;

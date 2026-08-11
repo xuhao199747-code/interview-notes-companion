@@ -32,3 +32,17 @@ test("高语义相似度不会再被只有弱词面命中的片段永久压制",
   ]);
   assert.equal(candidates[0].title, "请做一下自我介绍");
 });
+
+test("已有明确词面候选时，不让语义模型单独召回的无关大段资料抢占第一名", () => {
+  const sections = [
+    { title: "RAG 怎么做", project: "GEO", content: "采用混合召回、重排和评测闭环。" },
+    { title: "3.3 功能规则表", project: "AI 产品通用能力", content: "需求池、规则表和流程说明。" },
+  ];
+  const candidates = mergeHybridCandidates("GEO 项目的 RAG 怎么做", sections, [
+    { ...sections[1], score: 0, semanticScore: 0.99, matchType: "semantic" },
+    { ...sections[0], score: 8, semanticScore: 0.7, matchType: "semantic" },
+  ]);
+
+  assert.equal(candidates[0].title, "RAG 怎么做");
+  assert.equal(candidates.some((item) => item.title === "3.3 功能规则表"), false);
+});

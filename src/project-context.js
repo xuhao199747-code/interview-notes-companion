@@ -23,6 +23,6 @@ export function shouldScopeToProject(resolved, question = "") {
   // “自我介绍”属于个人经历题，不能因为前面提到过某项目就裁掉个人资料。
   if (classifyAnswerScope(question) === "experience") return false;
   if (resolved.source === "explicit" || resolved.source === "locked") return true;
-  const contextualProjectQuestion = /(?:你们|这个项目|该项目|你这个项目).*(?:指标|得分|评分|计算|口径|权重|架构|RAG|Agent|挑战|结果|优势)|^(?:指标|得分|评分|计算口径|权重).*(?:怎么|如何|是什么|多少|有)/u.test(question);
+  const contextualProjectQuestion = /(?:(?:你们).*(?:指标|得分|评分|计算|口径|权重|架构|RAG|Agent|挑战|结果|优势|能力|功能|模型|工具|流程)|(?:(?:你们|(?:他|她|它)?这个|(?:他|她|它)?那个|该|这|那)项目).*(?:指标|得分|评分|计算|口径|权重|架构|RAG|Agent|挑战|结果|优势|能力|功能|模型|工具|流程)|^(?:指标|得分|评分|计算口径|权重).*(?:怎么|如何|是什么|多少|有))/u.test(question);
   return resolved.source === "context" && (classifyTranscript(question).followUp || contextualProjectQuestion);
 }

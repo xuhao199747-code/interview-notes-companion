@@ -15,9 +15,10 @@ test("问题明确提到项目名称时优先切换项目", () => {
 });
 
 test("营销智能回答和 Attrip 作为旅游智能营销项目别名锁定项目范围", () => {
-  const tourism = { id: "tourism", name: "旅游智能营销", aliases: ["营销智能回答", "Attrip", "at trip"] };
+  const tourism = { id: "tourism", name: "旅游智能营销", aliases: ["营销智能回答", "Attrip", "at trip", "旅游智能营消"] };
   assert.equal(resolveProjectContext({ question: "那我给您讲一下营销智能回答，也就是 Attrip", projects: [tourism] }).projectId, "tourism");
   assert.equal(resolveProjectContext({ question: "那我给您讲一下营销智能回答，也就是 Attrip", projects: [tourism] }).source, "explicit");
+  assert.equal(resolveProjectContext({ question: "旅游智能营消项目里 RAG 怎么做", projects: [tourism] }).projectId, "tourism");
 });
 
 test("页面将营销智能回答和 Attrip 传给项目范围解析", async () => {
@@ -29,6 +30,17 @@ test("页面将营销智能回答和 Attrip 传给项目范围解析", async () 
 
 test("模糊追问沿用最近确认的项目", () => {
   assert.deepEqual(resolveProjectContext({ question: "RAG 怎么做的", projects, activeProjectId: "marketing" }), { projectId: "marketing", source: "context", confidence: 0.7 });
+});
+
+test("显式提到新项目后，后续未点名追问应跟随新项目而不是旧项目", () => {
+  const first = resolveProjectContext({ question: "营销项目里 RAG 怎么做", projects, activeProjectId: "ceo" });
+  const followUp = resolveProjectContext({ question: "它的指标怎么计算", projects, activeProjectId: first.projectId });
+  const switched = resolveProjectContext({ question: "CEO 项目的挑战是什么", projects, activeProjectId: followUp.projectId });
+  const afterSwitch = resolveProjectContext({ question: "这个项目怎么解决", projects, activeProjectId: switched.projectId });
+
+  assert.equal(followUp.projectId, "marketing");
+  assert.equal(switched.projectId, "ceo");
+  assert.equal(afterSwitch.projectId, "ceo");
 });
 
 test("点名未收录的 CEO 项目时不能错误沿用上一题的 GEO 项目", () => {
@@ -70,6 +82,19 @@ test("短追问才沿用上一项目检索范围", () => {
 
 test("指标和计算口径追问沿用最近确认的项目", () => {
   assert.equal(shouldScopeToProject({ projectId: "marketing", source: "context" }, "你们有什么指标，指标是怎么算的"), true);
+});
+
+test("承接上一题的“这个项目”能力问法继续限定在当前项目", () => {
+  const question = "他这个项目用到的 AI 能力有什么？";
+  const resolved = resolveProjectContext({
+    question,
+    projects: [{ id: "tourism", name: "旅游智能营销", aliases: ["旅游获客"] }],
+    activeProjectId: "tourism",
+  });
+
+  assert.deepEqual(resolved, { projectId: "tourism", source: "context", confidence: 0.7 });
+  assert.equal(shouldScopeToProject(resolved, question), true);
+  assert.equal(classifyAnswerScope(question, { isFollowUp: classifyTranscript(question).followUp, projectSource: resolved.source }), "followup");
 });
 
 test("承接上一题的准确率计算追问继续使用当前 GEO 项目资料", () => {

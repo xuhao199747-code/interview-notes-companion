@@ -11,3 +11,8 @@ export function buildLlmContext(matches = [], { maxItems = 4, maxItemChars = 220
     .map((item) => `【${item.project ? `${item.project} / ` : ""}${item.title}】\n${clipLlmText(item.content, maxItemChars)}`)
     .join("\n\n");
 }
+
+// 首字速度优先：保留检索排序，只缩小发送给模型的首轮资料体积。
+export function buildFastFirstTokenContext(matches = []) {
+  return buildLlmContext(matches, { maxItems: 2, maxItemChars: 900 });
+}

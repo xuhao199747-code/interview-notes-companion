@@ -80,6 +80,28 @@ test("问题明确点名项目时，项目名本身应作为资料证据", () =>
   assert.equal(route.matches[0].title, "核心指标");
 });
 
+test("资料可直接回答时只保留第一条最强证据，避免低相关段落干扰生成", () => {
+  const sections = [
+    { title: "RAG 在 GEO 项目里起什么作用", project: "GEO", content: "负责知识切片、混合召回、重排与评测闭环。" },
+    { title: "请介绍一下 GEO 项目", project: "GEO", content: "项目解决品牌可见度问题。" },
+    { title: "项目挑战", project: "GEO", content: "面对跨平台回答波动。" },
+  ];
+  const route = routeAnswer("GEO 项目的 RAG 怎么做", sections);
+
+  assert.equal(route.mode, "direct");
+  assert.deepEqual(route.matches.map((item) => item.title), ["RAG 在 GEO 项目里起什么作用"]);
+});
+
+test("完整原文标题直接回答时，优先于名称相近但语义不同的术语", () => {
+  const sections = [
+    { title: "线索评分", content: "依据画像和互动判断线索优先级。", score: 68 },
+    { title: "你的评分规则怎么制定的？", content: "定维度、配权重、做回测，85 分为直接发布线。", score: 36, archive: true },
+  ];
+  const route = routeAnswer("你的评分规则怎么制定的？", sections, { candidates: sections });
+  assert.equal(route.mode, "direct");
+  assert.deepEqual(route.matches.map((item) => item.title), ["你的评分规则怎么制定的？"]);
+});
+
 test("没有多模态资料时，不能用任何包含“区别”的无关资料凑回答", () => {
   const sections = [
     { title: "AI 产品经理和普通产品经理有什么区别", content: "AI 产品经理更关注模型能力和评测。" },

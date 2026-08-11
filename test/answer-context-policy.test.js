@@ -36,6 +36,26 @@ test("通用 Agent 题优先使用非档案的通用方法论，不让 GEO 或�
   assert.deepEqual(materials.map((item) => item.title), ["什么是 Agent"]);
 });
 
+test("通用题与原文问题标题明确对应时，保留该条逐字稿作为直接证据", () => {
+  const librarySections = [
+    { title: "线索评分", source: "AI产品经理术语表.md", archive: false, content: "线索优先级。" },
+    { title: "你的评分规则怎么制定的？", source: "面试知识库-AI产品通用能力.md", archive: true, content: "定维度、配权重、做回测，85 分为直接发布线。" },
+    { title: "Prompt Agent", source: "面试知识库-AI产品通用能力.md", archive: true, content: "GEO 项目逐字稿。" },
+  ];
+  const materials = selectAnswerMaterials({ scope: "general", query: "你的评分规则怎么制定的？", sections: librarySections });
+  assert.deepEqual(materials.map((item) => item.title), ["线索评分", "你的评分规则怎么制定的？"]);
+});
+
+test("原文里已有技术术语问答时，通用技术题也优先保留该原文", () => {
+  const librarySections = [
+    { title: "什么是 Agent", source: "面试知识库-AI产品通用能力.md", archive: false, content: "通用整理答案。" },
+    { title: "Agent 是什么？", source: "面试知识库-AI产品通用能力.md", archive: true, content: "原文逐字稿答案。" },
+    { title: "会话经营 Agent", source: "面试知识库-旅游智能营销.md", archive: true, content: "旅游项目逐字稿。" },
+  ];
+  const materials = selectAnswerMaterials({ scope: "general", query: "Agent 是什么？", sections: librarySections });
+  assert.deepEqual(materials.map((item) => item.title), ["什么是 Agent", "Agent 是什么？"]);
+});
+
 test("明确询问候选人经历时才允许使用个人经历", () => {
   const scope = classifyAnswerScope("介绍一下你做过的项目", { answerMode: "auto" });
   const materials = selectAnswerMaterials({ scope, sections });
@@ -71,6 +91,13 @@ test("“你会怎么做 RAG 系统”是通用问题，不因提问语气中的
   assert.equal(shouldUsePersonalContext(classifyAnswerScope("你会怎么做 RAG 系统")), false);
 });
 
+test("外部产品交互题不借用 AI 知识库或候选人项目", () => {
+  const scope = classifyAnswerScope("为什么微信朋友圈点赞要多这一步，不同入口为什么不一样？");
+  assert.equal(scope, "product");
+  assert.deepEqual(selectAnswerMaterials({ scope, sections }), []);
+  assert.equal(shouldUsePersonalContext(scope), false);
+});
+
 test("经历问题自动保留相关项目资料，但不把回答 Skill 当知识库检索", () => {
   const experienceSections = [
     { title: "自我介绍", content: "我做过 GEO。", project: "自我介绍", sourceType: "knowledge" },
@@ -101,7 +128,7 @@ test("页面按回答范围选择资料，并只在允许时发送个人背景",
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.match(app, /classifyAnswerScope\(normalizedQuery/);
-  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: scoped\.sections \}\)/);
+  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: scoped\.sections, query: normalizedQuery \}\)/);
   assert.match(app, /shouldUsePersonalContext\(scope\) \? selectPersonalContext/);
   assert.match(app, /filter\(\(doc\) => doc\.type !== "skill"\)/);
   assert.doesNotMatch(html, /id="answerModeSelect"/);
@@ -117,6 +144,7 @@ test("服务端回答范围优先于上传 Skill，通用题不得被 Skill 改�
   assert.match(server, /回答范围优先级最高/);
   assert.match(server, /回答 Skill 只能规定表达结构/);
   assert.match(server, /AI 产品经理/);
+  assert.match(server, /外部产品分析/);
   assert.match(rules, /回答范围优先级最高/);
   assert.match(rules, /回答 Skill 只能规定表达结构/);
   assert.match(rules, /AI 产品经理/);
@@ -169,6 +197,18 @@ test("生成指令只输出可直接口述的答案，不强制结论或分析�
   assert.doesNotMatch(server, /先输出一行“结论”/);
   assert.match(rules, /不分析面试官/);
   assert.doesNotMatch(rules, /必须先给一句可立即开口的结论/);
+});
+
+test("LLM 只参考按题型路由后的资料，原文逐字稿不会全局覆盖通用题", async () => {
+  const [server, app] = await Promise.all([
+    readFile(new URL("../server.js", import.meta.url), "utf8"),
+    readFile(new URL("../app.js", import.meta.url), "utf8"),
+  ]);
+  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: scoped\.sections, query: normalizedQuery \}\)/);
+  assert.match(server, /只参考当前问题命中的资料/);
+  assert.match(server, /通用题按通用资料回答/);
+  assert.match(server, /项目题按对应项目资料回答/);
+  assert.match(server, /无关原文覆盖当前题/);
 });
 
 test("候选人主动开始介绍项目时，生成指令直接续写而不反问", async () => {

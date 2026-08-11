@@ -27,6 +27,16 @@ test("词表覆盖评测、GEO 与旅游智能营销的高频口语问法", () =
   assert.equal(normalizeQuestion("在线旅游平台怎么做分发", defaultGlossary), "OTA怎么做分发");
 });
 
+test("词表覆盖 GEO 情感分析和旅游成交链路的项目专有口语", () => {
+  assert.equal(normalizeQuestion("品牌口碑舆情怎么分析", defaultGlossary), "情感分析怎么分析");
+  assert.equal(normalizeQuestion("AI 说品牌是正面的怎么统计", defaultGlossary), "AI 表达倾向怎么统计");
+  assert.equal(normalizeQuestion("品牌总可见度怎么算", defaultGlossary), "Visibility Score怎么算");
+  assert.equal(normalizeQuestion("游客需求卡怎么维护", defaultGlossary), "动态需求摘要怎么维护");
+  assert.equal(normalizeQuestion("怎么判断旅游客户购买意图", defaultGlossary), "怎么判断动态购买意图识别");
+  assert.equal(normalizeQuestion("怎么把客户引到企微", defaultGlossary), "怎么公转私");
+  assert.equal(normalizeQuestion("旅游套餐怎么匹配", defaultGlossary), "标准套餐检索与比较");
+});
+
 test("术语表以统一结构维护核心概念及其别名", async () => {
   const { readFile } = await import("node:fs/promises");
   const markdown = await readFile(new URL("../AI产品经理术语表.md", import.meta.url), "utf8");
@@ -79,9 +89,13 @@ test("未配置别名的问题保持原样", () => {
 test("AI 产品经理高频术语的 ASR 误识别始终会被纠正", () => {
   assert.equal(normalizeQuestion("你会怎么做 AIG 系统", []), "你会怎么做 RAG 系统");
   assert.equal(normalizeQuestion("你会怎么做 IG 系统", []), "你会怎么做 RAG 系统");
+  assert.equal(normalizeQuestion("你会怎么做阿瑞吉系统", []), "你会怎么做RAG系统");
   assert.equal(normalizeQuestion("扣字怎么搭", []), "Coze怎么搭");
   assert.equal(normalizeQuestion("介绍一下 CEO 项目的指标", []), "介绍一下 GEO 项目的指标");
   assert.equal(normalizeQuestion("请介绍一下 GU 这个项目", []), "请介绍一下 GEO 这个项目");
+  assert.equal(normalizeQuestion("你在刺幽这个项目中是怎么做的", []), "你在GEO这个项目中是怎么做的");
+  assert.equal(normalizeQuestion("请介绍一下最优这个项目", []), "请介绍一下GEO这个项目");
+  assert.equal(normalizeQuestion("最优方案怎么选", []), "最优方案怎么选");
   assert.equal(normalizeQuestion("怎么做 AIGC 产品", []), "怎么做 AIGC 产品");
 });
 

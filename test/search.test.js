@@ -20,6 +20,16 @@ test("解析 Markdown 标题和正文", () => {
   assert.match(sections[1].content, /用户访谈/);
 });
 
+test("超长资料章节会拆成可独立检索的段落块，而不是整章作为一个候选", () => {
+  const longParagraphs = Array.from({ length: 5 }, (_, index) => `第 ${index + 1} 段资料，${"需求、流程、规则和边界。".repeat(90)}`).join("\n\n");
+  const sections = parseMarkdown(`# AI 产品通用能力\n\n## 3.3 功能规则表\n\n${longParagraphs}\n\n## 请做一下自我介绍\n\n我有五年 AI 产品经验，负责过 GEO 与旅游智能营销项目。`, "通用能力.md");
+  const longChunks = sections.filter((section) => section.title === "3.3 功能规则表");
+
+  assert.ok(longChunks.length > 1);
+  assert.ok(longChunks.every((section) => section.content.length <= 1800));
+  assert.equal(searchSections("请做一下自我介绍", sections, 1)[0].title, "请做一下自我介绍");
+});
+
 test("根据问题返回最相关的章节", () => {
   const results = searchSections("你遇到过什么项目挑战，怎么解决", parseMarkdown(markdown));
   assert.equal(results[0].title, "项目挑战");

@@ -8,6 +8,7 @@ import { routeAnswer } from "./src/answer-router.js";
 import { classifyTranscript } from "./src/turn-detector.js";
 import { mergeAsrTranscript } from "./src/asr-transcript-buffer.js";
 import { formatGlobalHotkey } from "./src/global-hotkey.js";
+import { nextQuestionCaptureAction, questionCaptureFinalResultWaitMs, questionCaptureRestartDelayMs, questionCaptureSilenceMs } from "./src/question-capture.js";
 import { selectPersonalContext } from "./src/personal-context.js";
 import { extractSseDeltas } from "./src/llm-stream.js";
 import { getActiveSkillName } from "./src/skill-ui.js";
@@ -29,7 +30,7 @@ const savedDeletedDocuments = readJsonStorage("interview.deletedDocuments", []);
 const savedGlossary = readJsonStorage("interview.glossary", defaultGlossary);
 const savedQuestionHotkey = readStorage("interview.questionCaptureHotkey", "Alt+Space");
 const savedTemplate = readStorage("interview.template", defaultTemplate);
-const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], template: savedTemplate === legacyDefaultTemplate ? defaultTemplate : savedTemplate, templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, repeatAudio: null, repeatListening: false, repeatText: "", repeatSilenceTimer: null, repeatFinalizeTimer: null, repeatAwaitingFinal: false, repeatCaptureId: null, repeatLastVoiceAt: 0, repeatLastAudioFrameAt: 0, repeatLastRecoveryAt: 0, repeatHasVoice: false, repeatSubmitted: false, asrProvider: "browser", savedAsrProvider: "browser", activeProjectId: readStorage("interview.activeProjectId", ""), glossary: Array.isArray(savedGlossary) ? savedGlossary : defaultGlossary, glossaryFileName: readStorage("interview.glossaryFileName", "内置 AI 产品术语"), glossaryMarkdown: readStorage("interview.glossaryMarkdown", ""), answerRules: null, answerOverlayExpanded: false, answerOverlayView: "current" };
+const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], template: savedTemplate === legacyDefaultTemplate ? defaultTemplate : savedTemplate, templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, repeatAudio: null, repeatListening: false, repeatText: "", repeatSilenceTimer: null, repeatFinalizeTimer: null, repeatRestartTimer: null, repeatReadyAt: 0, repeatAwaitingFinal: false, pendingQuestionCaptureStart: false, repeatCaptureId: null, repeatLastVoiceAt: 0, repeatLastAudioFrameAt: 0, repeatLastRecoveryAt: 0, repeatHasVoice: false, repeatSubmitted: false, asrProvider: "browser", savedAsrProvider: "browser", activeProjectId: readStorage("interview.activeProjectId", ""), glossary: Array.isArray(savedGlossary) ? savedGlossary : defaultGlossary, glossaryFileName: readStorage("interview.glossaryFileName", "内置 AI 产品术语"), glossaryMarkdown: readStorage("interview.glossaryMarkdown", ""), answerRules: null, answerOverlayExpanded: false, answerOverlayView: "current" };
 let documentSaveQueue = Promise.resolve();
 const answerState = createAnswerState();
 state.questionHotkey = savedQuestionHotkey || "Alt+Space";
@@ -335,7 +336,7 @@ async function runSearch(query, confirm = false) {
   const isFollowUp = classifyTranscript(cleanQuery).followUp;
   const scoped = getScopedSections(normalizedQuery);
   const scope = classifyAnswerScope(normalizedQuery, { isFollowUp, projectSource: scoped.resolved.source });
-  const materials = selectAnswerMaterials({ scope, sections: scoped.sections });
+  const materials = selectAnswerMaterials({ scope, sections: scoped.sections, query: normalizedQuery });
   const retrieval = await retrieveSemanticCandidates(normalizedQuery, materials);
   if (state.searchId !== searchId) return;
   const candidates = mergeHybridCandidates(normalizedQuery, materials, retrieval.matches);
@@ -821,12 +822,25 @@ function clearRepeatFinalizeTimer() {
   state.repeatFinalizeTimer = null;
 }
 
+function queueNextQuestionCapture() {
+  state.pendingQuestionCaptureStart = true;
+  clearTimeout(state.repeatRestartTimer);
+  const waitMs = Math.max(0, state.repeatReadyAt - Date.now());
+  state.repeatRestartTimer = setTimeout(() => {
+    state.repeatRestartTimer = null;
+    if (!state.pendingQuestionCaptureStart || state.repeatAwaitingFinal) return;
+    state.pendingQuestionCaptureStart = false;
+    void startRepeatQuestion();
+  }, waitMs);
+}
+
 function submitRepeatedQuestion() {
   // 录音期间可能收到多个 ASR 分段；只在静音或用户再次确认时，将整段文本作为一个问题提交。
   const question = state.repeatText.trim();
   if (!question || state.repeatSubmitted) return;
   state.repeatSubmitted = true;
   runSearch(question, true);
+  return true;
 }
 
 async function stopRepeatQuestion(submit = true) {
@@ -837,7 +851,10 @@ async function stopRepeatQuestion(submit = true) {
   state.repeatAudio = null;
   state.repeatListening = false;
   state.repeatAwaitingFinal = false;
+  state.pendingQuestionCaptureStart = false;
+  clearTimeout(state.repeatRestartTimer);
   await window.interviewApp?.stopQuestionCapture?.();
+  state.repeatReadyAt = Date.now() + questionCaptureRestartDelayMs;
   updateRepeatQuestionButton();
   if (submit) submitRepeatedQuestion();
 }
@@ -851,13 +868,17 @@ async function finalizeRepeatQuestion() {
   state.repeatListening = false;
   state.repeatAwaitingFinal = true;
   await window.interviewApp?.stopQuestionCapture?.();
+  state.repeatReadyAt = Date.now() + questionCaptureRestartDelayMs;
   updateRepeatQuestionButton();
   $("transcriptText").textContent = state.repeatText || "正在整理完整问题…";
   clearRepeatFinalizeTimer();
   state.repeatFinalizeTimer = setTimeout(() => {
     state.repeatAwaitingFinal = false;
     submitRepeatedQuestion();
-  }, 900);
+    if (state.pendingQuestionCaptureStart) {
+      queueNextQuestionCapture();
+    }
+  }, questionCaptureFinalResultWaitMs);
 }
 
 async function abortRepeatQuestion(message) {
@@ -868,6 +889,8 @@ async function abortRepeatQuestion(message) {
   state.repeatAudio = null;
   state.repeatListening = false;
   state.repeatAwaitingFinal = false;
+  state.pendingQuestionCaptureStart = false;
+  clearTimeout(state.repeatRestartTimer);
   state.repeatSubmitted = true;
   await window.interviewApp?.stopQuestionCapture?.();
   updateRepeatQuestionButton();
@@ -902,7 +925,18 @@ async function ensureRepeatAudioHealthy() {
 }
 
 async function startRepeatQuestion() {
-  if (state.repeatListening) return finalizeRepeatQuestion();
+  const action = nextQuestionCaptureAction({ active: state.repeatListening, waitingFinal: state.repeatAwaitingFinal });
+  if (action === "submit") return finalizeRepeatQuestion();
+  if (action === "queue") {
+    queueNextQuestionCapture();
+    $("transcriptText").textContent = "已收到快捷键；正在提交上一题，马上开始识别下一题";
+    return;
+  }
+  if (Date.now() < state.repeatReadyAt) {
+    queueNextQuestionCapture();
+    $("transcriptText").textContent = "已收到快捷键；上一题连接正在释放，马上开始识别下一题";
+    return;
+  }
   state.answerOverlayExpanded = false;
   showCurrentAnswer();
   if (!window.interviewApp?.startQuestionCapture) {
@@ -947,12 +981,13 @@ async function startRepeatQuestion() {
     clearRepeatSilenceTimer();
     state.repeatSilenceTimer = setInterval(() => {
       void ensureRepeatAudioHealthy();
-      if (state.repeatListening && state.repeatHasVoice && Date.now() - state.repeatLastVoiceAt >= 1200) void finalizeRepeatQuestion();
+      if (state.repeatListening && state.repeatHasVoice && Date.now() - state.repeatLastVoiceAt >= questionCaptureSilenceMs) void finalizeRepeatQuestion();
     }, 180);
-    $("transcriptText").textContent = "请复述面试官的问题；停顿 1.2 秒自动提交，也可再次点击立即提交";
+    $("transcriptText").textContent = "正在识别这一题；停顿 3 秒自动提交，也可再次点击立即提交";
     updateRepeatQuestionButton();
   } catch (error) {
     await window.interviewApp?.stopQuestionCapture?.();
+    updateRepeatQuestionButton();
     $("transcriptText").textContent = error.message || "无法启动问题识别";
   }
 }
@@ -974,6 +1009,9 @@ function handleRepeatAsrEvent(payload) {
     clearRepeatFinalizeTimer();
     state.repeatAwaitingFinal = false;
     submitRepeatedQuestion();
+    if (state.pendingQuestionCaptureStart) {
+      queueNextQuestionCapture();
+    }
   }
 }
 
@@ -1053,7 +1091,9 @@ function setupModules() {
   $("cancelEditorButton").addEventListener("click", closeEditor);
   $("saveEditorButton").addEventListener("click", saveEditor);
   $("voiceRepeatButton").addEventListener("click", startRepeatQuestion);
-  $("transcriptCard").addEventListener("click", startRepeatQuestion);
+  $("transcriptCard").addEventListener("click", () => {
+    if (!state.repeatListening && !state.repeatAwaitingFinal) void startRepeatQuestion();
+  });
   if (window.interviewApp?.onQuestionCaptureEvent) window.interviewApp.onQuestionCaptureEvent(handleRepeatAsrEvent);
   if (window.interviewApp?.onQuestionCaptureHotkey) window.interviewApp.onQuestionCaptureHotkey(startRepeatQuestion);
   // 主进程只有收到此确认后才会投递全局快捷键；启动过程中用户已按下的快捷键也会补发。
@@ -1274,5 +1314,4 @@ void (async () => {
   await loadPersistedDocuments();
   await loadPersistedGlossary();
   await loadBundledKnowledgeBase();
-  setInterval(() => { void loadBundledKnowledgeBase(); }, 5000);
 })();

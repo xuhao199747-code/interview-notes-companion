@@ -69,6 +69,17 @@ function projectOverviewMatches(sections = []) {
     .map((section) => ({ ...section, score: Math.max(section.score || 0, 20), matchType: "keyword" }));
 }
 
+function isExplicitQuestionTitle(query = "", section = {}) {
+  const title = String(section.title || "");
+  const phrase = query
+    .replace(/[^\u4e00-\u9fff]/gu, "")
+    .replace(/(?:你们|你|我|请问|请|这个|那个|一下|怎么|如何|制定|设计|是什么|什么是|为什么|的吗|吗|呢|的|是)/gu, "");
+  if (phrase.length >= 4 && title.replace(/[^\u4e00-\u9fff]/gu, "").includes(phrase)) return true;
+  const technicalTerms = query.match(/[a-z][a-z0-9_-]{1,}/giu) || [];
+  return technicalTerms.some((term) => new RegExp(`\\b${term}\\b`, "iu").test(title))
+    && /(?:什么|怎么|如何|设计|架构|流程|评测|规则|区别|？|\?)/u.test(title);
+}
+
 function rankedMatches(query, sections, candidates) {
   if (!Array.isArray(candidates)) return searchSections(query, sections, 4);
   const available = new Set(sections.map((section) => `${section.source || ""}\u0000${section.project || ""}\u0000${section.title}\u0000${section.content}`));
@@ -82,13 +93,16 @@ export function routeAnswer(query, sections, { allowProjectOverview = false, can
     const profileSections = sections.filter(isProfileSection);
     if (!profileSections.length) return { mode: "fallback", matches: [], confidence: 0, reason: "没有个人经历资料" };
     const matches = rankedMatches(query, profileSections, candidates);
-    return { mode: "direct", matches: matches.length ? matches : profileSections.slice(0, 4).map((section) => ({ ...section, score: 12, matchType: "keyword" })), confidence: 94, reason: "资料直接回答核心问题" };
+    const strongest = matches.length ? matches.slice(0, 1) : profileSections.slice(0, 1).map((section) => ({ ...section, score: 12, matchType: "keyword" }));
+    return { mode: "direct", matches: strongest, confidence: 94, reason: "资料直接回答核心问题" };
   }
   if (isGenericZeroToOneQuestion(query)) {
     return { mode: "fallback", matches: [], confidence: 0, reason: "通用从零到一方法论题，不引用无关项目资料" };
   }
   const matches = rankedMatches(query, sections, candidates);
   if (!matches.length) return { mode: "fallback", matches: [], confidence: 0, reason: "资料未命中" };
+  const explicitAnswer = matches.find((section) => isExplicitQuestionTitle(query, section));
+  if (explicitAnswer) return { mode: "direct", matches: [explicitAnswer], confidence: 98, reason: "命中原文直接答案" };
   if (allowProjectOverview && isProjectOverviewQuestion(query)) {
     const overview = projectOverviewMatches(sections);
     const selected = overview.length ? overview : matches;
@@ -98,7 +112,7 @@ export function routeAnswer(query, sections, { allowProjectOverview = false, can
   if (!hasSpecificEvidence(query, top)) return { mode: "fallback", matches: [], confidence: 0, reason: "只命中泛词，资料无法可靠回答" };
   const countRequired = asksForCount(query);
   const direct = countRequired ? hasCountEvidence(top) : top.score >= 8;
-  if (direct) return { mode: "direct", matches, confidence: Math.min(98, 70 + top.score * 2), reason: "资料直接回答核心问题" };
+  if (direct) return { mode: "direct", matches: [top], confidence: Math.min(98, 70 + top.score * 2), reason: "资料直接回答核心问题" };
   if (matches.length >= 2) return { mode: "compose", matches, confidence: Math.min(80, 50 + top.score * 2), reason: "需要整合多段资料" };
   return { mode: "supplement", matches, confidence: Math.min(65, 35 + top.score * 2), reason: "资料相关但未覆盖核心问题" };
 }

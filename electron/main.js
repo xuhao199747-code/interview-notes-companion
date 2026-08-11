@@ -35,6 +35,7 @@ const overlayWindowSizes = {
 function setOverlayWindowMode(mode) {
   if (!windowRef || windowRef.isDestroyed()) return false;
   const size = overlayWindowSizes[mode] || overlayWindowSizes.collapsed;
+  if (mode === "expanded" && !windowRef.isFocused()) windowRef.focus();
   const display = screen.getDisplayMatching(windowRef.getBounds());
   const { x, y, width } = display.workArea;
   const targetBounds = { x: Math.round(x + (width - size.width) / 2), y: y + 12, ...size };

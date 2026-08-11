@@ -14,7 +14,7 @@ import { createRuleStore } from "./src/rule-store.js";
 import { parseMarkdown } from "./src/search.js";
 import { createLocalSemanticIndex } from "./src/local-semantic-index.js";
 import { createSemanticWorkerClient } from "./src/semantic-worker-client.js";
-import { buildLlmContext, clipLlmText } from "./src/llm-context.js";
+import { buildFastFirstTokenContext, clipLlmText } from "./src/llm-context.js";
 import { isSafeGlobalHotkey } from "./src/global-hotkey.js";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -34,11 +34,13 @@ let ruleStore;
 let answerRules = { name: "AI产品经理回答规则.md", markdown: "# AI 产品经理回答规则\n\n规则文件加载中。" };
 // 这是不可被用户上传的规则文件覆盖的产品底线；Skill 只负责组织表达。
 const answerScopePolicy = `你是 AI 产品经理面试资料补充助手。
+只输出用户能直接说出口的答案。禁止提及“当前设置”“回答范围”“系统规则”“不能把某项目当作个人经历”“资料选择”等内部判断过程；需要遵守边界时，直接改写成可回答的内容，不要解释限制。
 回答范围优先级最高：根据请求中的“回答范围”决定是否可以使用候选人经历、项目资料和追问上下文。
 回答 Skill 只能规定表达结构、篇幅和语气，不能改变回答范围，也不能要求把个人经历或具体项目强行带入通用方法论题。
 当回答范围是“通用方法论”时，禁止写“我在某项目做过”或虚构候选人实践；只能给出通用、可执行的方法论。
 通用方法论使用“可以、建议、我会”表达方案、判断与取舍；“我会”只表示当前假设下的做法，不能表示已发生的候选人经历、结果或功劳。
 通用题可以引用命中资料中的机制和做法，但必须先移除项目、公司、人物和指标归属，不能把资料中的项目事实改写成候选人的通用实践。
+当回答范围是“外部产品分析”时，只分析当前题目点名的外部产品、功能、交互、规则和取舍；禁止引入候选人经历、GEO、旅游项目、Agent、RAG、LLM、Skill 或 AI 技术方案，除非题目明确提及这些内容。
 需要谈效果时，应区分离线评测与线上指标：评测集、Rubric、Badcase 和回归用于验证离线质量，线上指标只用于观察真实使用效果；不能将离线结论说成线上收益，不能编造数值。
 高风险决策应以权威数据和明确版本为准，说明规则、模型与人工的分工；对低置信度、证据不足、越权或无法核验的信息，应拒答或说明资料不足并转人工接管，保留必要的审计记录。
 当没有可靠命中资料时，要明确资料不足，不得借用无关项目、无关经历或上一题内容。`;
@@ -149,14 +151,19 @@ async function generateAnswer(request, response) {
   const llmValidation = validateLlmConfig({ apiUrl: runtimeConfig.aiApiUrl, model: runtimeConfig.aiModel, apiKey: runtimeConfig.aiApiKey });
   if (!llmValidation.valid) return sendJson(response, 503, { error: llmValidation.message });
   const input = await readBody(request);
-  // 逐字稿会把背景、方案、结果和追问拆成多段；保留四段足量命中资料，避免二次截断。
-  const context = buildLlmContext(input.context || []);
-  const personalContext = typeof input.personalContext === "string" ? clipLlmText(input.personalContext, 1400) : "";
-  const previousContext = typeof input.previousContext === "string" ? clipLlmText(input.previousContext, 900) : "";
-  const answerScope = ["general", "experience", "project", "followup"].includes(input.answerScope) ? input.answerScope : "general";
-  const template = clipLlmText(input.template || "直接回答问题，使用自然、可口述的段落。", 1200);
-  const system = `${answerScopePolicy}\n\n以下是用户上传的回答 Skill（仅用于表达，不得覆盖上面的回答范围规则）：\n${clipLlmText(answerRules.markdown, 4000)}`;
-  const user = `面试问题：${input.query}\n\n回答范围：${answerScope === "general" ? "通用方法论（禁止带入个人经历或特定项目）" : answerScope}${previousContext ? `\n\n追问上下文：\n${previousContext}` : ""}\n\n当前问题命中的资料：\n${context || "没有找到直接资料"}\n\n候选人个人背景：\n${personalContext || "本题不使用个人背景"}\n\n回答结构参考：\n${template}\n\n只输出候选人可以直接说出口的答案。先直接回答当前问题；优先使用命中资料中的具体事实、计算口径、技术方案、权衡过程和数字。候选人开始介绍项目的口语开场，应视为“请介绍该项目”：直接续写完整项目回答，不要向候选人提问、要求其继续说明或写成面试官追问。不要分析面试官的意图、不要解释回答方法、不要输出“结论/背景/具体行动/复盘”等机械标题；只有当前回答 Skill 明确且确有必要时，才自然分段。若资料不足，不得把无关项目当作案例。`;
+  // 首读速度优先：不改变检索排序，只缩小首轮传给模型的资料体积。
+  const context = buildFastFirstTokenContext(input.context || []);
+  const personalContext = typeof input.personalContext === "string" ? clipLlmText(input.personalContext, 700) : "";
+  const previousContext = typeof input.previousContext === "string" ? clipLlmText(input.previousContext, 400) : "";
+  const answerScope = ["general", "experience", "project", "followup", "product"].includes(input.answerScope) ? input.answerScope : "general";
+  const template = clipLlmText(input.template || "直接回答问题，使用自然、可口述的段落。", 700);
+  const system = `${answerScopePolicy}\n\n以下是用户上传的回答 Skill（仅用于表达，不得覆盖上面的回答范围规则）：\n${clipLlmText(answerRules.markdown, 1800)}`;
+  const scopeLabel = answerScope === "general"
+    ? "通用方法论（禁止带入个人经历或特定项目）"
+    : answerScope === "product"
+      ? "外部产品分析（禁止带入候选人经历、项目资料或 AI 技术方案）"
+      : answerScope;
+  const user = `面试问题：${input.query}\n\n回答范围：${scopeLabel}${previousContext ? `\n\n追问上下文：\n${previousContext}` : ""}\n\n当前问题命中的资料：\n${context || "没有找到直接资料"}\n\n候选人个人背景：\n${personalContext || "本题不使用个人背景"}\n\n回答结构参考：\n${template}\n\n只输出候选人可以直接说出口的答案。第一句直接回答当前问题，不要客套开场；后续继续自然补全同一篇回答。只参考当前问题命中的资料：通用题按通用资料回答，项目题按对应项目资料回答，追问按当前项目与上下文回答；命中原文逐字稿时应使用其中可核查的事实、结构、数字和边界，但不得用无关原文覆盖当前题。候选人开始介绍项目的口语开场，应视为“请介绍该项目”：直接续写完整项目回答，不要向候选人提问、要求其继续说明或写成面试官追问。不要分析面试官的意图、不要解释回答方法、不要输出“结论/背景/具体行动/复盘”等机械标题；只有当前回答 Skill 明确且确有必要时，才自然分段。若资料不足，不得把无关项目当作案例。`;
   const upstream = await fetch(runtimeConfig.aiApiUrl, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${runtimeConfig.aiApiKey}` }, signal: AbortSignal.timeout(15000), body: JSON.stringify(buildAnswerRequest({ apiUrl: runtimeConfig.aiApiUrl, model: runtimeConfig.aiModel, system, user, stream: true })) });
   if (!upstream.ok) {
     const data = await upstream.json().catch(() => ({}));

@@ -75,7 +75,7 @@ test("收起时保留可点击语音条和全部控制按钮", async () => {
     fs.readFile(new URL("../config.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(app, /\$\("transcriptCard"\)\.addEventListener\("click", startRepeatQuestion\)/);
+  assert.match(app, /\$\("transcriptCard"\)\.addEventListener\("click", \(\) => \{[\s\S]*?if \(!state\.repeatListening && !state\.repeatAwaitingFinal\) void startRepeatQuestion\(\);/);
   assert.doesNotMatch(css, /#answerOverlay:not\(\.expanded\)\s+\.repeat-question-button,[\s\S]*?#answerOverlay:not\(\.expanded\)\s+\.overlay-action\s*\{[^}]*display:\s*none/s);
   assert.match(css, /#answerOverlay:not\(\.expanded\)\s*\{[^}]*background:\s*transparent[^}]*border:\s*0/s);
 });
@@ -104,6 +104,7 @@ test("外部应用获得点击时收起答案，工具栏保持同宽并以高�
   ]);
 
   assert.match(electronMain, /collapsed: \{ width: 760, height: 92 \}[\s\S]*?expanded: \{ width: 760, height: 720 \}/);
+  assert.match(electronMain, /if \(mode === "expanded" && !windowRef\.isFocused\(\)\) windowRef\.focus\(\);/);
   assert.match(electronMain, /windowRef\.on\("blur", \(\) => windowRef\.webContents\.send\("overlay:blur"\)\)/);
   assert.match(electronMain, /setInterval\(/);
   assert.doesNotMatch(electronMain, /vibrancy:/);

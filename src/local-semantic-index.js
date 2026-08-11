@@ -5,7 +5,7 @@ import { pipeline, env } from "@huggingface/transformers";
 import { cosineSimilarity } from "./semantic-search.js";
 
 const MODEL_NAME = "semantic-model";
-const INDEX_VERSION = 1;
+const INDEX_VERSION = 2;
 const EMBEDDING_BATCH_SIZE = 12;
 
 function keyFor(section = {}) {
