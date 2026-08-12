@@ -3,3 +3,13 @@ node_modules/
 dist/
 .DS_Store
 .worktrees/
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+*.mobileprovision
+local-data/
+private/
+exports/

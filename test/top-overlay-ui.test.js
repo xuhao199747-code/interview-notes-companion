@@ -71,13 +71,15 @@ test("答题窗收起时变成短语音条，展开答案时再向下扩展", as
   assert.match(app, /setOverlayMode\?\.\(state\.answerOverlayExpanded \? "expanded" : "collapsed"\)/);
 });
 
-test("收起时保留可点击语音条和全部控制按钮", async () => {
+test("收起时保留明确的识别按钮和全部控制按钮，语音条不会误触发识别", async () => {
   const [app, css] = await Promise.all([
     fs.readFile(new URL("../app.js", import.meta.url), "utf8"),
     fs.readFile(new URL("../config.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(app, /\$\("transcriptCard"\)\.addEventListener\("click", \(\) => \{[\s\S]*?if \(!state\.repeatListening && !state\.repeatAwaitingFinal\) void startRepeatQuestion\(\);/);
+  assert.match(app, /\$\("voiceRepeatButton"\)\.addEventListener\("click", startRepeatQuestion\);/);
+  assert.match(app, /function setupOverlayWindowDrag\(\)/);
+  assert.doesNotMatch(app, /transcriptCard"\)\.addEventListener\("click", startRepeatQuestion/);
   assert.doesNotMatch(css, /#answerOverlay:not\(\.expanded\)\s+\.repeat-question-button,[\s\S]*?#answerOverlay:not\(\.expanded\)\s+\.overlay-action\s*\{[^}]*display:\s*none/s);
   assert.match(css, /#answerOverlay:not\(\.expanded\)\s*\{[^}]*background:\s*transparent[^}]*border:\s*0/s);
 });
@@ -145,9 +147,17 @@ test("顶部浮层的波形和转写文字保持足够对比度", async () => {
 });
 
 test("顶部图标按钮在固定尺寸内水平和垂直居中", async () => {
-  const css = await fs.readFile(new URL("../config.css", import.meta.url), "utf8");
+  const [css, html] = await Promise.all([
+    fs.readFile(new URL("../config.css", import.meta.url), "utf8"),
+    fs.readFile(new URL("../index.html", import.meta.url), "utf8"),
+  ]);
 
   assert.match(css, /\.overlay-action\.icon\s*\{[^}]*width:40px[^}]*height:40px[^}]*display:grid[^}]*place-items:center[^}]*line-height:1/s);
+  assert.match(css, /\.overlay-action\.icon svg\s*\{[^}]*width:18px[^}]*height:18px/s);
+  assert.match(html, /data-lucide="chevron-up"/);
+  assert.match(html, /data-lucide="pin"/);
+  assert.match(html, /data-lucide="settings-2"/);
+  assert.match(html, /https:\/\/unpkg\.com\/lucide@/);
 });
 
 test("可见工具栏就是窗口边界，控制按钮不被转写文本挤掉，并提供原生拖动区域", async () => {
@@ -163,11 +173,16 @@ test("可见工具栏就是窗口边界，控制按钮不被转写文本挤掉�
   assert.match(css, /#answerOverlay\s+\.listening-row\s*\{[^}]*grid-template-columns:minmax\(180px,1fr\)\s+124px\s+72px\s+40px\s+40px\s+40px/s);
   assert.match(css, /#answerOverlay\s+\.listening-row\s*\{[^}]*overflow:hidden/s);
   assert.match(css, /#answerOverlay\.expanded\s+#answerOverlayBody\s*\{[^}]*height:calc\(100vh - 64px\)/s);
+  assert.match(css, /#answerOverlay:not\(\.expanded\)\s+#answerOverlayBody\s*\{[^}]*display:none !important/s);
+  assert.match(css, /#answerOverlay,#answerOverlay \*\s*\{[^}]*user-select:none !important[^}]*-webkit-user-select:none !important/s);
   assert.match(html, /id="voiceRepeatButton"[\s\S]*?id="previousAnswerButton"[\s\S]*?id="answerOverlayToggle"[\s\S]*?id="alwaysOnTopButton"[\s\S]*?id="overlaySettingsButton"/);
   assert.match(electronMain, /ipcMain\.handle\("window:move-overlay-by"/);
   assert.match(preload, /moveOverlayBy: \(deltaX, deltaY\) => ipcRenderer\.invoke\("window:move-overlay-by", deltaX, deltaY\)/);
   assert.match(app, /function setupOverlayWindowDrag\(\)/);
-  assert.match(app, /\$\("transcriptCard"\)\.addEventListener\("pointerdown"/);
+  assert.match(app, /card\.addEventListener\("pointerdown"/);
+  assert.match(app, /event\.preventDefault\(\);/);
+  assert.match(app, /card\.addEventListener\("selectstart", \(event\) => event\.preventDefault\(\)\);/);
+  assert.match(app, /window\.getSelection\?\.\(\)\?\.removeAllRanges\?\.\(\);/);
   assert.match(app, /moveOverlayBy\?\.\(deltaX, deltaY\)/);
 });
 

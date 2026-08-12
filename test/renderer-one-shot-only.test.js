@@ -22,16 +22,14 @@ test("渲染层的活动入口只绑定单次识别问题链路", async () => {
   assert.match(source, /document\.addEventListener\("visibilitychange"/);
   assert.match(source, /context\.state !== "suspended"/);
   assert.match(source, /ensureRepeatAudioHealthy/);
-  assert.match(source, /track\.readyState === "live"/);
+  assert.match(source, /decideQuestionCaptureHealth\(/);
   assert.match(source, /state\.repeatAwaitingFinal = true/);
   assert.match(source, /sentence_type === 1 && state\.repeatAwaitingFinal/);
   assert.match(source, /payload\?\.captureId && payload\.captureId !== state\.repeatCaptureId/);
 });
 
-test("转写条只绑定一次，避免一次点击同时开始又提交", async () => {
+test("转写条不直接启动识别，避免拖动或点击空白时误录音", async () => {
   const source = await readFile(new URL("../app.js", import.meta.url), "utf8");
-  const bindings = source.match(/\$\("transcriptCard"\)\.addEventListener\("click", \(\) => \{/g) || [];
-
-  assert.equal(bindings.length, 1);
-  assert.match(source, /if \(!state\.repeatListening && !state\.repeatAwaitingFinal\) void startRepeatQuestion\(\);/);
+  assert.doesNotMatch(source, /\$\("transcriptCard"\)\.addEventListener\("click"/);
+  assert.match(source, /\$\("voiceRepeatButton"\)\.addEventListener\("click", startRepeatQuestion\);/);
 });

@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("interviewApp", {
   stopQuestionCapture: () => ipcRenderer.invoke("question-capture:stop"),
   toggleAlwaysOnTop: () => ipcRenderer.invoke("window:toggle-always-on-top"),
   setOverlayMode: (mode) => ipcRenderer.invoke("window:set-overlay-mode", mode),
+  moveOverlayBy: (deltaX, deltaY) => ipcRenderer.invoke("window:move-overlay-by", deltaX, deltaY),
   onOverlayBlur: (callback) => ipcRenderer.on("overlay:blur", () => callback()),
   configureQuestionCaptureHotkey: (hotkey) => ipcRenderer.invoke("question-capture:configure-hotkey", hotkey),
   markQuestionCaptureRendererReady: () => ipcRenderer.invoke("question-capture:renderer-ready"),

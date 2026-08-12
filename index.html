@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="modal.css" />
     <link rel="stylesheet" href="config.css" />
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -28,7 +29,7 @@
             <div class="listening-row"><div class="transcript-card" id="transcriptCard">
               <div class="waveform" id="waveform"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
               <p class="transcript-placeholder" id="transcriptText">点击“识别问题”后录入当前这一题；回答时不会继续采集你的声音</p>
-            </div><button class="repeat-question-button" id="voiceRepeatButton" type="button">识别问题</button><button class="overlay-action" id="previousAnswerButton" type="button" disabled>上一题</button><button class="overlay-action icon" id="answerOverlayToggle" type="button" aria-label="展开回答" title="展开回答">⌃</button><button class="overlay-action icon" id="alwaysOnTopButton" type="button" aria-label="取消置顶" title="取消置顶">⌖</button><button class="overlay-action icon" id="overlaySettingsButton" type="button" aria-label="设置" title="设置">⚙</button><span id="docCount" class="hidden">0</span></div>
+            </div><button class="repeat-question-button" id="voiceRepeatButton" type="button">识别问题</button><button class="overlay-action" id="previousAnswerButton" type="button" disabled>上一题</button><button class="overlay-action icon" id="answerOverlayToggle" type="button" aria-label="展开回答" title="展开回答"><i data-lucide="chevron-up"></i></button><button class="overlay-action icon" id="alwaysOnTopButton" type="button" aria-label="取消置顶" title="取消置顶"><i data-lucide="pin"></i></button><button class="overlay-action icon" id="overlaySettingsButton" type="button" aria-label="设置" title="设置"><i data-lucide="settings-2"></i></button><span id="docCount" class="hidden">0</span></div>
             <div class="tips"><span>⌘</span><span>每一道题需手动点击一次；静音 3 秒后会自动提交并停止采集</span></div>
           </section></div>
           <div class="current-answer-grid answer-source-grid" id="answerOverlayBody"><section class="answer-source"><div class="source-heading"><h3>文档库参考</h3></div><div id="documentResults" class="results-list"></div></section><section class="answer-source"><div class="source-heading"><h3>LLM 生成回答</h3></div><div id="llmResults" class="results-list"></div></section></div>

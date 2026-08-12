@@ -274,12 +274,13 @@ function renderAnswerOverlay() {
   overlay.classList.toggle("expanded", expanded);
   $("answerOverlayBackdrop").classList.toggle("hidden", !expanded);
   const toggle = $("answerOverlayToggle");
-  toggle.textContent = expanded ? "⌄" : "⌃";
+  toggle.innerHTML = `<i data-lucide="${expanded ? "chevron-down" : "chevron-up"}"></i>`;
   toggle.setAttribute("aria-label", expanded ? "收起回答" : "展开回答");
   toggle.title = expanded ? "收起回答" : "展开回答";
   const previousButton = $("previousAnswerButton");
   previousButton.disabled = !answerState.previous;
   previousButton.textContent = state.answerOverlayView === "previous" ? "返回当前题" : "上一题";
+  window.lucide?.createIcons?.({ attrs: { "aria-hidden": "true" } });
   syncOverlayWindow();
 }
 
@@ -432,392 +433,42 @@ async function generateAnswer(query, requestId, previousContext = "", matches = 
   renderAnswerState();
 }
 
-function setupSpeech() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    $("micLabel").textContent = "浏览器不支持";
-    $("micButton").title = "请使用 Chrome 浏览器开启语音识别";
-    return;
-  }
-  const recognition = new SpeechRecognition();
-  recognition.lang = "zh-CN";
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.maxAlternatives = 1;
-  recognition.onresult = (event) => {
-    const results = [];
-    for (let i = event.resultIndex; i < event.results.length; i += 1) results.push({ isFinal: event.results[i].isFinal, transcript: event.results[i][0].transcript });
-    const merged = mergeSpeechResults(results, 0, state.speechFinal);
-    state.speechFinal = merged.finalText;
-    runSearch(merged.text, false);
-    clearTimeout(state.speechTimer);
-    if (merged.finalText) {
-      const delay = getQuestionConfirmationDelay(state.speechFinal);
-      if (delay === null) return;
-      state.speechTimer = setTimeout(() => {
-        const question = cleanSpeechQuestion(state.speechFinal);
-        if (question) runSearch(question, true);
-        state.speechFinal = "";
-      }, delay);
-    }
-  };
-  recognition.onend = () => {
-    if (!state.listening) return;
-    clearTimeout(state.restartTimer);
-    state.restartTimer = setTimeout(() => {
-      if (!state.listening) return;
-      try { recognition.start(); }
-      catch { recognition.onend(); }
-    }, 250);
-  };
-  recognition.onerror = (event) => {
-    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-      state.listening = false;
-      $("micLabel").textContent = "请允许麦克风";
-      return;
-    }
-    $("micLabel").textContent = "监听中";
-  };
-  state.recognition = recognition;
-}
-
-function toggleListening() {
-  if (getListeningMode(state.asrProvider) === "desktop") {
-    return state.desktopListening ? stopDesktopAsr() : startDesktopAsr();
-  }
-  if (!state.recognition) return;
-  state.listening = !state.listening;
-  if (state.listening) {
-    state.speechFinal = "";
-    clearTimeout(state.restartTimer);
-    try { state.recognition.start(); } catch { state.recognition.onend(); }
-    $("micButton").classList.add("active"); $("transcriptCard").classList.add("listening"); $("micLabel").textContent = "监听中";
-  } else {
-    clearTimeout(state.restartTimer);
-    state.recognition.stop(); clearTimeout(state.speechTimer); state.speechFinal = "";
-    $("micButton").classList.remove("active"); $("transcriptCard").classList.remove("listening"); $("micLabel").textContent = "开始监听";
-  }
-}
-
-function updatePrimaryListeningControl() {
-  // 持续监听入口已移除；保留旧函数仅兼容历史配置加载。
-  if (!$("micButton") || !$("micLabel")) return;
-  const desktopMode = getListeningMode(state.asrProvider) === "desktop";
-  const desktopControl = getDesktopControlState({ listening: state.desktopListening, starting: state.desktopStarting, isDesktop: Boolean(window.interviewApp?.isDesktop) });
-  $("micLabel").textContent = desktopMode ? desktopControl.label : (state.listening ? "监听中" : "开始监听");
-  $("micButton").disabled = desktopMode && desktopControl.disabled;
-  $("micButton").classList.toggle("active", desktopMode ? desktopControl.active : state.listening);
-}
-
-function setDesktopStatus(message, ready = false) {
-  const status = $("desktopAsrStatus");
-  if (status) status.innerHTML = `<span class="status-dot ${ready ? "" : "error-dot"}"></span>${escapeHtml(message)}`;
-}
-
-async function refreshAudioDevices() {
-  try {
-    const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    permissionStream.getTracks().forEach((track) => track.stop());
-    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === "audioinput");
-    const select = $("audioDeviceSelect");
-    const selected = select.value;
-    select.innerHTML = `<option value="">请选择桌面音频输入</option>${devices.map((device, index) => `<option value="${escapeHtml(device.deviceId)}">${escapeHtml(device.label || `音频输入 ${index + 1}`)}</option>`).join("")}`;
-    select.value = getPreferredAudioDeviceId(devices, selected);
-    setDesktopStatus(devices.length ? "已读取音频设备；请选择会议音频输入" : "没有检测到音频输入设备");
-  } catch {
-    setDesktopStatus("无法读取音频设备，请允许麦克风权限");
-  }
-}
-
-async function startDesktopAsr() {
-  if (!window.interviewApp?.startAsr) return setDesktopStatus("当前是浏览器页面；请使用 npm run desktop 启动 Mac 应用");
-  if (state.desktopStarting) return;
-  if (!$("audioDeviceSelect").value) await refreshAudioDevices();
-  const deviceId = $("audioDeviceSelect").value;
-  const redirect = getDesktopStartRedirect(deviceId);
-  if (redirect) {
-    openView(redirect.viewId, redirect.settingsId);
-    setDesktopStatus(redirect.message);
-    return;
-  }
-  state.desktopStarting = true;
-  state.committedAsrQuestion = "";
-  state.partialQuestionText = "";
-  state.asrTurn = createAsrTurnState();
-  clearPartialQuestionTimer();
-  setDesktopStatus(state.questionCommitMode === "hotkey" ? `正在开启全程监听；识别完成后按 ${state.questionHotkey} 提交问题…` : "正在开启全程监听；之后会自动识别并检索每一个完整问题…");
-  updatePrimaryListeningControl();
-  try {
-    const connection = await window.interviewApp.startAsr();
-    if (!connection.ok) {
-      setDesktopStatus(connection.error || "语音服务无法启动");
-      return;
-    }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-    const context = new AudioContext();
-    const source = context.createMediaStreamSource(stream);
-    const processor = context.createScriptProcessor(4096, 1, 1);
-    const mute = context.createGain();
-    mute.gain.value = 0;
-    processor.onaudioprocess = (event) => {
-      const pcm = downsampleToPcm16(event.inputBuffer.getChannelData(0), context.sampleRate);
-      window.interviewApp.sendAudio(new Uint8Array(pcm));
-    };
-    source.connect(processor);
-    processor.connect(mute);
-    mute.connect(context.destination);
-    await context.resume();
-    state.desktopAudio = { stream, context, processor, mute };
-    state.desktopListening = true;
-    if ($("startDesktopAsrButton")) $("startDesktopAsrButton").disabled = true;
-    if ($("stopDesktopAsrButton")) $("stopDesktopAsrButton").disabled = false;
-    const supportsSpeakerFilter = state.voiceprintEnabled && (state.voicePrintVerified || state.asrProvider === "tencent");
-    const listeningMessage = state.questionCommitMode === "hotkey" ? `全程监听已开启；按 ${state.questionHotkey} 提交当前识别的问题` : (supportsSpeakerFilter ? (state.voicePrintVerified ? "全程监听已开启；声纹过滤已启用，会忽略本人回答" : (state.ownSpeakerId === "" ? "全程监听已开启；请先完成声纹验证或确认你的 Speaker 编号" : `全程监听已开启；自动过滤 Speaker ${state.ownSpeakerId}`)) : "全程监听已开启；每个完整语句会自动检索（声纹过滤未启用或尚未验证）");
-    setDesktopStatus(listeningMessage, state.questionCommitMode === "hotkey" || !supportsSpeakerFilter || state.voicePrintVerified || state.ownSpeakerId !== "");
-    updatePrimaryListeningControl();
-  } catch (error) {
-    await window.interviewApp.stopAsr();
-    setDesktopStatus(`无法打开音频设备：${error.message || "请检查 Mac 麦克风权限和虚拟声卡"}`);
-  } finally {
-    state.desktopStarting = false;
-    updatePrimaryListeningControl();
-  }
-}
-
-async function stopDesktopAsr() {
-  clearPartialQuestionTimer();
-  state.partialQuestionText = "";
-  state.asrTranscript = "";
-  state.hotkeyTranscript = "";
-  state.asrTurn = createAsrTurnState();
-  state.desktopAudio?.stream.getTracks().forEach((track) => track.stop());
-  await state.desktopAudio?.context.close();
-  state.desktopAudio = null;
-  state.desktopListening = false;
-  state.desktopStarting = false;
-  await window.interviewApp?.stopAsr?.();
-  if ($("startDesktopAsrButton")) $("startDesktopAsrButton").disabled = false;
-  if ($("stopDesktopAsrButton")) $("stopDesktopAsrButton").disabled = true;
-  setDesktopStatus("已停止桌面监听");
-  updatePrimaryListeningControl();
-}
-
-function handleAsrEvent(payload) {
-  if (payload.type === "ready") return setDesktopStatus(state.questionCommitMode === "hotkey" ? `全程监听已开启；按 ${state.questionHotkey} 提交当前问题` : (state.voiceprintEnabled && state.voicePrintVerified ? "全程监听已开启；声纹过滤已启用，会自动忽略本人回答" : "全程监听已开启；每个完整语句会自动检索（声纹过滤未启用或尚未验证）"), true);
-  if (payload.type === "audio") return setDesktopStatus(`全程监听中：已收到 ${payload.count} 个音频包，等待识别完整问题…`, true);
-  if (payload.type === "error") return setDesktopStatus(payload.message || "腾讯云识别失败");
-  if (payload.type === "voiceprint") {
-    const label = payload.decision === "self" ? "本人声音，已忽略" : payload.decision === "other" ? "非本人声音，可继续识别问题" : "声纹不确定，按问题完整度保守处理";
-    if ($("speakerLive")) $("speakerLive").textContent = `声纹：${label}${payload.score === null || payload.score === undefined ? "" : `（相似度 ${payload.score}）`}`;
-    return;
-  }
-  if (payload.type !== "result") return;
-  const sentence = payload.sentence;
-  if (state.asrProvider === "doubao") {
-    const incoming = removeCommittedQuestionPrefix(state.committedAsrQuestion, sentence.sentence);
-    state.asrTurn = applyAsrEvent(state.asrTurn, {
-      type: sentence.sentence_type === 1 ? "final" : "partial",
-      text: incoming
-    });
-    state.asrTranscript = state.asrTurn.rawText;
-    sentence.sentence = state.asrTranscript;
-  }
-  const ownSpeakerId = state.ownSpeakerId === "" ? null : Number(state.ownSpeakerId);
-  if ($("speakerLive")) $("speakerLive").textContent = `${state.asrProvider === "doubao" ? "豆包" : `Speaker ${sentence.speaker_id}`} · ${sentence.sentence_type === 1 ? "最终结果" : "识别中"}：${sentence.sentence || ""}`;
-  const ignoreOwnVoice = shouldIgnoreOwnVoice({ provider: state.asrProvider, voiceprintEnabled: state.voiceprintEnabled, verified: state.voicePrintVerified, verification: payload.voiceprint || "unknown" });
-  if (shouldDisplayAsrSentence(sentence, state.asrProvider) && shouldRenderAsrTranscript({ provider: state.asrProvider, voiceprintEnabled: state.voiceprintEnabled, verified: state.voicePrintVerified, verification: payload.voiceprint || "unknown" })) $("transcriptText").textContent = sentence.sentence;
-  if (state.asrProvider === "doubao") {
-    if (ignoreOwnVoice) {
-      clearPartialQuestionTimer();
-      state.partialQuestionText = "";
-      state.hotkeyTranscript = "";
-      state.asrTurn = { ...state.asrTurn, rawText: "", stableText: "", submitText: "" };
-      if ($("speakerLive")) $("speakerLive").textContent = "声纹：本人声音，已忽略，不会显示、检索或生成答案";
-      return;
-    }
-    if (state.questionCommitMode === "hotkey") {
-      state.hotkeyTranscript = sentence.sentence;
-      if ($("speakerLive")) $("speakerLive").textContent = `快捷键确认模式：按 ${state.questionHotkey} 提交当前问题`;
-      return;
-    }
-    const action = decideAsrQuestionAction({ provider: state.voiceprintProvider, verified: state.voicePrintVerified, verification: payload.voiceprint || "unknown", final: sentence.sentence_type === 1, questionLike: classifyTranscript(sentence.sentence).complete });
-    if (action === "ignore") {
-      clearPartialQuestionTimer();
-      state.partialQuestionText = "";
-      if ($("speakerLive")) $("speakerLive").textContent = "声纹：本人声音，已忽略，不会检索或生成答案";
-      return;
-    }
-    if (action === "schedule") {
-      schedulePartialQuestionCommit(sentence.sentence);
-      return;
-    }
-    if (action === "hold") {
-      if ($("speakerLive")) $("speakerLive").textContent = "声纹：等待完整问题";
-      return;
-    }
-    commitAsrQuestion(state.asrTurn.submitText || sentence.sentence);
-    return;
-  }
-  if (shouldRouteAsrSentence(sentence, state.asrProvider, ownSpeakerId)) {
-    $("transcriptText").textContent = sentence.sentence;
-    runSearch(sentence.sentence, true);
-  }
-}
-
-function pcmToBase64(pcm) {
-  const bytes = new Uint8Array(pcm);
-  let binary = "";
-  const step = 0x8000;
-  for (let index = 0; index < bytes.length; index += step) binary += String.fromCharCode(...bytes.subarray(index, index + step));
-  return btoa(binary);
-}
-
-async function captureVoiceSample(durationMs = 6000, onProgress) {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-  const context = new AudioContext();
-  const source = context.createMediaStreamSource(stream);
-  const processor = context.createScriptProcessor(4096, 1, 1);
-  const mute = context.createGain();
-  mute.gain.value = 0;
-  const parts = [];
-  processor.onaudioprocess = (event) => parts.push(new Uint8Array(downsampleToPcm16(event.inputBuffer.getChannelData(0), context.sampleRate)));
-  source.connect(processor);
-  processor.connect(mute);
-  mute.connect(context.destination);
-  await context.resume();
-  onProgress?.(durationMs, 0);
-  const startedAt = Date.now();
-  const progressTimer = setInterval(() => onProgress?.(durationMs, Date.now() - startedAt), 250);
-  await new Promise((resolve) => setTimeout(resolve, durationMs));
-  clearInterval(progressTimer);
-  processor.disconnect();
-  mute.disconnect();
-  source.disconnect();
-  stream.getTracks().forEach((track) => track.stop());
-  await context.close();
-  const size = parts.reduce((total, part) => total + part.length, 0);
-  const pcm = new Uint8Array(size);
-  let offset = 0;
-  for (const part of parts) { pcm.set(part, offset); offset += part.length; }
-  return pcm.buffer;
-}
-
-function setVoiceprintStatus(message, ready = false) {
-  $("voiceprintStatus").innerHTML = `<span class="status-dot ${ready ? "" : "error-dot"}"></span>${escapeHtml(message)}`;
-}
-
-function setVoiceprintRecordingStatus(durationMs, elapsedMs = 0) {
-  const status = $("voiceprintRecordingStatus");
-  const remaining = Math.max(0, Math.ceil((durationMs - elapsedMs) / 1000));
-  status.hidden = false;
-  status.innerHTML = `<span class="recording-dot"></span>正在录音，请正常说话，还剩 ${remaining} 秒`;
-}
-
-function setVoiceprintRecordingMessage(message) {
-  const status = $("voiceprintRecordingStatus");
-  status.hidden = false;
-  status.textContent = message;
-}
-
-function renderVoiceprintGuide(config) {
-  const guide = getSelectedVoiceprintGuide(config);
-  const local = config.voiceprintProvider !== "tencent";
-  $("voiceprintGuide").innerHTML = guide.cards.map((card, index) => `<article class="voiceprint-step${card.complete ? " complete" : ""}"><span>0${index + 1}</span><div><small>${card.title}</small><strong>${card.label}</strong></div></article>`).join("");
-  const primaryAction = $("voiceprintPrimaryAction");
-  primaryAction.classList.toggle("hidden", local || !guide.primaryAction);
-  primaryAction.dataset.action = guide.primaryAction?.id || "";
-  primaryAction.textContent = guide.primaryAction?.label || "";
-  const hasProfile = local ? Boolean(config.localVoiceprintReady) : Boolean(config.voicePrintId);
-  $("voiceprintArchive").hidden = local || !config.voicePrintId;
-  $("audioDeviceSection").hidden = false;
-  $("voiceprintHint").textContent = local ? "本地模式的模型和声纹档案只保存在这台电脑，不会上传录音。首次录入会下载一次模型。" : "腾讯云密钥仅保存在本机，不会显示原文。腾讯云模式需要先开通声纹服务。";
-  const profiles = $("voiceprintProfiles");
-  profiles.hidden = !local;
-  if (local) profiles.innerHTML = (config.localVoiceprintProfiles || []).map((profile) => {
-    const active = profile.id === config.activeLocalVoiceprintId;
-    const stateLabel = active && profile.verified ? "正在使用" : profile.verified ? "已验证" : profile.ready ? "待验证" : "尚未录入";
-    const primary = !profile.ready ? `<button class="primary-button voiceprint-record-slot" data-profile-id="${profile.id}">录入</button>` : !profile.verified ? `<button class="primary-button voiceprint-verify-slot" data-profile-id="${profile.id}">验证</button>` : active ? `<button class="secondary-button" disabled>正在使用</button>` : `<button class="primary-button voiceprint-select" data-profile-id="${profile.id}">切换使用</button>`;
-    return `<article class="voiceprint-profile${active ? " active" : ""}"><strong>${escapeHtml(profile.name)}</strong><small>${stateLabel}</small><div class="voice-actions">${primary}${profile.ready ? `<button class="ghost-button voiceprint-record-slot" data-profile-id="${profile.id}">重录</button><button class="ghost-button voiceprint-delete-slot" data-profile-id="${profile.id}">删除</button>` : ""}</div></article>`;
-  }).join("");
-}
-
-function setVoiceprintButtonsDisabled(disabled) {
-  document.querySelectorAll("#voiceprintProfiles button, #voiceprintPrimaryAction").forEach((button) => { button.disabled = disabled; });
-}
-
-function openVoiceprintCredentials() {
-  document.querySelector('.settings-tab[data-settings="apiSettings"]').click();
-  $("tencentConfigFields").classList.remove("hidden");
-  $("tencentSecretId").focus();
-}
-
-async function recordAndEnrollVoiceprint() {
-  const local = state.voiceprintProvider !== "tencent";
-  const duration = local ? 12000 : 6000;
-  setVoiceprintButtonsDisabled(true);
-  try {
-    setVoiceprintRecordingStatus(duration);
-    $("voiceSampleStatus").textContent = `正在录入 ${duration / 1000} 秒本人样本，请以正常面试音量连续说话…`;
-    state.voiceSamplePcm = await captureVoiceSample(duration, setVoiceprintRecordingStatus);
-    setVoiceprintRecordingMessage(local ? "样本已采集，正在本机生成声纹档案。首次使用会下载模型，请稍候…" : "样本已采集，正在提交腾讯云声纹注册…");
-    $("voiceSampleStatus").textContent = local ? "样本已采集，正在本机生成声纹档案。首次使用会下载模型，请稍候…" : "样本已采集，正在提交腾讯云声纹注册…";
-    const response = await fetch(local ? "/api/local-voiceprint/enroll" : "/api/voiceprint/enroll", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pcm16Base64: pcmToBase64(state.voiceSamplePcm), profileId: state.activeVoiceprintId }) });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "声纹注册失败");
-    $("voicePrintId").value = payload.voicePrintId || "";
-    state.voicePrintVerified = false;
-    setVoiceprintStatus("样本已录入，尚未验证：请点击“验证声纹（重新录 4 秒）”", false);
-    $("voiceSampleStatus").textContent = payload.message;
-    await loadAsrConfig();
-  } catch (error) {
-    setVoiceprintStatus(formatVoiceprintError(error.message), false);
-    $("voiceSampleStatus").textContent = local ? "录入失败：请检查麦克风权限与网络（首次使用需要下载本地模型）。" : "录入失败：请检查麦克风权限、腾讯云服务开通状态和密钥。";
-  } finally { setVoiceprintButtonsDisabled(false); }
-}
-
-async function verifyVoiceprint() {
-  const local = state.voiceprintProvider !== "tencent";
-  if (!local && !$("voicePrintId").value) return setVoiceprintStatus("请先录入本人声纹样本", false);
-  setVoiceprintButtonsDisabled(true);
-  try {
-    setVoiceprintRecordingStatus(4000);
-    $("voiceSampleStatus").textContent = "正在重新录制 4 秒独立验证样本，请以正常面试音量连续说话…";
-    state.voiceVerificationPcm = await captureVoiceSample(4000, setVoiceprintRecordingStatus);
-    setVoiceprintRecordingMessage(local ? "验证样本已采集，正在本机比对声纹…" : "验证样本已采集，正在提交腾讯云确认…");
-    $("voiceSampleStatus").textContent = local ? "验证样本已采集，正在本机比对声纹…" : "验证样本已采集，正在提交腾讯云确认…";
-    const request = fetch(local ? "/api/local-voiceprint/verify" : "/api/voiceprint/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ pcm16Base64: pcmToBase64(state.voiceVerificationPcm), profileId: state.activeVoiceprintId }) });
-    const response = local ? await request : await withTimeout(request, 15000, "腾讯云声纹验证超过 15 秒没有返回，请重试");
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "声纹验证失败");
-    state.voicePrintVerified = true;
-    setVoiceprintStatus(`${payload.message}${payload.score === null ? "" : `（相似度 ${payload.score}）`}`, true);
-    $("voiceSampleStatus").textContent = "验证成功。实时声纹门控正在接入桌面端音频切片。";
-    await loadAsrConfig();
-  } catch (error) { setVoiceprintStatus(formatVoiceprintError(error.message), false); }
-  finally { state.voiceVerificationPcm = null; setVoiceprintButtonsDisabled(false); }
-}
-
-async function deleteVoiceprint() {
-  try {
-    const response = await fetch(state.voiceprintProvider === "tencent" ? "/api/voiceprint/profile" : "/api/local-voiceprint/profile", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ profileId: state.activeVoiceprintId }) });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "删除失败");
-    state.voiceSamplePcm = null;
-    state.voiceVerificationPcm = null;
-    state.voicePrintVerified = false;
-    $("voicePrintId").value = "";
-    setVoiceprintStatus("未连接声纹服务：本地绑定已删除", false);
-    $("voiceSampleStatus").textContent = payload.message;
-    await loadAsrConfig();
-  } catch (error) { setVoiceprintStatus(error.message || "删除失败", false); }
-}
-
 function escapeHtml(value) { return value.replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" }[char])); }
 
 function updateRepeatQuestionButton() {
   const button = $("voiceRepeatButton");
   button.textContent = state.repeatListening ? "识别中 · 点击提交" : "识别问题";
   button.classList.toggle("active", state.repeatListening);
+}
+
+function setupOverlayWindowDrag() {
+  const card = $("transcriptCard");
+  let dragStart = null;
+  let moved = false;
+  card.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    dragStart = { x: event.screenX, y: event.screenY, pointerId: event.pointerId };
+    moved = false;
+    card.setPointerCapture?.(event.pointerId);
+  });
+  card.addEventListener("pointermove", (event) => {
+    if (!dragStart || event.pointerId !== dragStart.pointerId) return;
+    const deltaX = event.screenX - dragStart.x;
+    const deltaY = event.screenY - dragStart.y;
+    if (Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
+    moved = true;
+    card.dataset.dragged = "true";
+    dragStart = { x: event.screenX, y: event.screenY, pointerId: event.pointerId };
+    void window.interviewApp?.moveOverlayBy?.(deltaX, deltaY);
+  });
+  card.addEventListener("pointerup", (event) => {
+    if (event.pointerId !== dragStart?.pointerId) return;
+    card.releasePointerCapture?.(event.pointerId);
+    dragStart = null;
+    if (moved) event.preventDefault();
+  });
+  card.addEventListener("pointercancel", () => { dragStart = null; });
 }
 
 function clearRepeatSilenceTimer() {
@@ -1096,9 +747,10 @@ function setupModules() {
     const enabled = await window.interviewApp?.toggleAlwaysOnTop?.();
     if (typeof enabled !== "boolean") return;
     const button = $("alwaysOnTopButton");
-    button.textContent = enabled ? "⌖" : "⌑";
+    button.innerHTML = `<i data-lucide="${enabled ? "pin" : "pin-off"}"></i>`;
     button.setAttribute("aria-label", enabled ? "取消置顶" : "置顶显示");
     button.title = enabled ? "取消置顶" : "置顶显示";
+    window.lucide?.createIcons?.({ attrs: { "aria-hidden": "true" } });
   });
   $("saveAsrConfigButton").addEventListener("click", saveAsrConfig);
   $("questionCaptureHotkey").addEventListener("keydown", captureQuestionCaptureHotkey);
@@ -1120,9 +772,7 @@ function setupModules() {
   $("cancelEditorButton").addEventListener("click", closeEditor);
   $("saveEditorButton").addEventListener("click", saveEditor);
   $("voiceRepeatButton").addEventListener("click", startRepeatQuestion);
-  $("transcriptCard").addEventListener("click", () => {
-    if (!state.repeatListening && !state.repeatAwaitingFinal) void startRepeatQuestion();
-  });
+  setupOverlayWindowDrag();
   if (window.interviewApp?.onQuestionCaptureEvent) window.interviewApp.onQuestionCaptureEvent(handleRepeatAsrEvent);
   if (window.interviewApp?.onQuestionCaptureHotkey) window.interviewApp.onQuestionCaptureHotkey(startRepeatQuestion);
   // 主进程只有收到此确认后才会投递全局快捷键；启动过程中用户已按下的快捷键也会补发。

@@ -2,13 +2,7 @@
 .listening-settings-copy { max-width:760px; }.listening-config-grid { margin-bottom:8px; }.listening-config-card { min-height:126px; padding:15px; border:1px solid #2c3950; border-radius:8px; background:rgba(21,30,48,.72); }.listening-config-card label + label { margin-top:13px; }.listening-config-card small { margin-top:10px; color:var(--muted); font-size:11px; line-height:1.6; }.listening-config-card input[readonly] { cursor:default; }.field-label { color:var(--muted); font:10px 'DM Mono'; margin-bottom:11px; text-transform:uppercase; }.toggle-row { display:flex; align-items:center; gap:9px; color:var(--text); font-size:12px; cursor:pointer; }.toggle-row input { width:15px; height:15px; accent-color:var(--accent); padding:0; }
 .settings-guide { margin-top:24px; padding:15px 17px; border:1px solid #2c3950; border-radius:8px; background:rgba(21,30,48,.72); color:var(--muted); font-size:11px; line-height:1.8; }.settings-guide strong { color:var(--text); font-size:12px; }.settings-guide ol { margin:10px 0 0; padding-left:18px; }.settings-guide li { margin:4px 0; }
 .config-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.speaker-live { margin-top:16px; min-height:52px; border:1px solid #2c3950; border-radius:8px; background:rgba(21,30,48,.72); color:#b8c2d1; padding:13px 15px; font-size:12px; line-height:1.6; }.legacy-voice-actions { margin-top:24px; opacity:.75; }
-.voice-actions { display:flex; gap:10px; flex-wrap:wrap; margin:20px 0 10px; }.voice-actions .secondary-button { display:inline-flex; align-items:center; }
-.voiceprint-archive,.audio-device-section,.voiceprint-management { margin-top:24px; }.voiceprint-archive label,.audio-device-section label { display:block; color:var(--muted); font:10px 'DM Mono'; margin-bottom:7px; text-transform:uppercase; }.voiceprint-archive input,.audio-device-section select { width:100%; background:#0e1625; border:1px solid #35435b; border-radius:6px; color:var(--text); padding:10px; outline:0; font:12px Manrope; }.audio-device-section,.voiceprint-management { border-top:1px solid var(--line); padding-top:20px; }.audio-device-section h4,.voiceprint-management h4 { margin:0 0 5px; font-size:13px; }.audio-device-section p,.voiceprint-management p { margin:0 0 14px; color:var(--muted); font-size:11px; line-height:1.6; }.audio-device-section .secondary-button { margin-top:12px; }
-.voiceprint-provider { display:block; width:min(360px,100%); margin:8px 0 20px; background:#0e1625; border:1px solid #35435b; border-radius:6px; color:var(--text); padding:10px; font:12px Manrope; }
 .rules-preview { grid-column:1 / -1; margin:0; padding:16px; border:1px solid var(--line); border-radius:8px; background:#101827; color:var(--muted); font:12px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap; max-height:360px; overflow:auto; }.rules-preview summary { color:var(--text); cursor:pointer; font:600 12px Manrope; margin-bottom:12px; }.rules-preview pre { white-space:pre-wrap; margin:0; font:inherit; }
-.voiceprint-profiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:16px 0; }.voiceprint-profile { border:1px solid #35435b; border-radius:8px; padding:14px; background:#121b2c; }.voiceprint-profile.active { border-color:var(--accent); background:rgba(181,255,93,.06); }.voiceprint-profile strong,.voiceprint-profile small { display:block; }.voiceprint-profile small { color:var(--muted); margin:5px 0 12px; }.voiceprint-profile .voice-actions { margin:0; gap:7px; }.voiceprint-profile button { padding:7px 9px; font-size:11px; }
-.voiceprint-recording-status { margin-top:12px; padding:12px 14px; border:1px solid rgba(181,255,93,.45); border-radius:7px; background:rgba(181,255,93,.08); color:var(--accent); font-size:12px; }.recording-dot { display:inline-block; width:8px; height:8px; margin-right:8px; border-radius:50%; background:#ff8c8c; box-shadow:0 0 10px #ff8c8c; animation:voice-recording-pulse 1s infinite; }@keyframes voice-recording-pulse { 50% { opacity:.35; transform:scale(.72); } }
 .knowledge-readonly { display:flex; align-items:center; gap:10px; min-height:250px; justify-content:center; flex-direction:column; color:var(--muted); }.knowledge-readonly .status-dot { margin-bottom:4px; }.knowledge-readonly strong { color:var(--text); font-size:14px; }.knowledge-readonly .secondary-button { margin-top:8px; }
 .question-workspace { display:flex; flex-direction:column; gap:16px; }.question-toolbar { display:flex; align-items:stretch; gap:16px; }.workspace-title { flex:1; min-width:180px; padding:17px 2px; }.workspace-title h1 { font-size:28px; letter-spacing:-.05em; margin:8px 0 13px; }.source-count { color:var(--muted); font-size:10px; display:flex; align-items:center; gap:7px; }.source-count b { color:var(--text); }.question-toolbar .live-panel { flex:0 1 760px; min-height:0; padding:17px 20px; }.question-toolbar .live-panel .panel-heading { margin-bottom:12px; }.question-toolbar .transcript-card { min-height:70px; padding:11px 15px; flex-direction:row; align-items:center; gap:18px; }.question-toolbar .waveform { margin:0; flex:0 0 100px; }.question-toolbar .transcript-placeholder { font-size:12px; }.question-toolbar .manual-search { padding-top:10px; }.question-toolbar .tips { display:none; }.current-answer-grid .results-list { min-height:400px; }.current-answer-grid .result-card { padding:24px; }.current-answer-grid .result-card h3 { font-size:18px; }.current-answer-grid .result-card p { font-size:15px; line-height:1.9; }.current-answer-grid .empty-state { min-height:430px; }
 .ai-result .answer-body { color:#aeb8c8; font-size:15px; line-height:1.68; }
@@ -234,6 +228,7 @@ body.overlay-mode .workspace { height:100vh; padding:0; }
 #answerOverlay .waveform { opacity:.88; }
 #answerOverlay .transcript-placeholder { color:#d8d8d8; }
 #answerOverlay .overlay-action.icon { width:40px; height:40px; display:grid; place-items:center; padding:0; line-height:1; }
+#answerOverlay .overlay-action.icon svg { width:18px; height:18px; stroke-width:2; }
 
 /* Readability hierarchy over meeting content. */
 #answerOverlay { --overlay-surface:rgba(43,45,49,.88); }
@@ -246,11 +241,11 @@ body.overlay-mode .workspace { height:100vh; padding:0; }
 
 /* The frameless window is exactly the visible overlay; drag the toolbar itself. */
 #answerOverlay { top:0; left:0; width:100%; transform:none; }
+#answerOverlay:not(.expanded) #answerOverlayBody { display:none !important; }
+#answerOverlay .question-toolbar { user-select:none; -webkit-user-select:none; }
 #answerOverlay .listening-row { display:grid; grid-template-columns:minmax(180px,1fr) 124px 72px 40px 40px 40px; align-items:center; width:100%; min-width:0; overflow:hidden; }
-#answerOverlay .transcript-card { min-width:0; width:100%; -webkit-app-region:drag; }
+#answerOverlay .transcript-card { min-width:0; width:100%; cursor:grab; }
+#answerOverlay .transcript-card:active { cursor:grabbing; }
 #answerOverlay .repeat-question-button { width:124px; padding:0; }
 #answerOverlay .overlay-action:not(.icon) { width:72px; padding:0; }
-#answerOverlay .live-panel { -webkit-app-region:drag; }
-#answerOverlay .live-panel button,#answerOverlay .transcript-placeholder { -webkit-app-region:no-drag; }
-#answerOverlay .waveform { -webkit-app-region:drag; }
 #answerOverlay.expanded #answerOverlayBody { height:calc(100vh - 64px); }

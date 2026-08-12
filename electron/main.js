@@ -151,6 +151,15 @@ ipcMain.handle("window:toggle-always-on-top", () => {
 });
 
 ipcMain.handle("window:set-overlay-mode", (_event, mode) => setOverlayWindowMode(mode));
+ipcMain.handle("window:move-overlay-by", (_event, deltaX, deltaY) => {
+  if (!windowRef || windowRef.isDestroyed()) return false;
+  const dx = Number(deltaX);
+  const dy = Number(deltaY);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return false;
+  const bounds = windowRef.getBounds();
+  windowRef.setPosition(Math.round(bounds.x + dx), Math.round(bounds.y + dy));
+  return true;
+});
 
 ipcMain.handle("question-capture:start", async () => {
   const config = getRuntimeConfig();
