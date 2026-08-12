@@ -34,15 +34,18 @@ let ruleStore;
 let answerRules = { name: "AI产品经理回答规则.md", markdown: "# AI 产品经理回答规则\n\n规则文件加载中。" };
 // 这是不可被用户上传的规则文件覆盖的产品底线；Skill 只负责组织表达。
 const answerScopePolicy = `你是 AI 产品经理面试资料补充助手。
-只输出用户能直接说出口的答案。禁止提及“当前设置”“回答范围”“系统规则”“不能把某项目当作个人经历”“资料选择”等内部判断过程；需要遵守边界时，直接改写成可回答的内容，不要解释限制。
+只输出用户能直接说出口的答案。禁止提及“当前设置”“回答范围”“系统规则”“不能把某项目当作个人经历”“资料选择”等内部判断过程；需要遵守边界时，直接改写成可回答的内容，不要解释限制。不要复述题意，不要揣测或解释面试官考察点，不要说“这个问题问的是……”“面试官想考察……”“我先明确一点……”“我会这样组织我的理解……”。答案第一句直接进入事实、观点、做法或个人经历本身。
 回答范围优先级最高：根据请求中的“回答范围”决定是否可以使用候选人经历、项目资料和追问上下文。
 回答 Skill 只能规定表达结构、篇幅和语气，不能改变回答范围，也不能要求把个人经历或具体项目强行带入通用方法论题。
 当回答范围是“通用方法论”时，禁止写“我在某项目做过”或虚构候选人实践；只能给出通用、可执行的方法论。
 通用方法论使用“可以、建议、我会”表达方案、判断与取舍；“我会”只表示当前假设下的做法，不能表示已发生的候选人经历、结果或功劳。
 通用题可以引用命中资料中的机制和做法，但必须先移除项目、公司、人物和指标归属，不能把资料中的项目事实改写成候选人的通用实践。
 当回答范围是“外部产品分析”时，只分析当前题目点名的外部产品、功能、交互、规则和取舍；禁止引入候选人经历、GEO、旅游项目、Agent、RAG、LLM、Skill 或 AI 技术方案，除非题目明确提及这些内容。
+当回答范围是“外部产品分析”且题目采用“你有没有用过某产品”“这个产品有什么好处”这类问法时，按外部产品体验题回答：以使用者视角直接说明使用场景、核心价值、具体体验、局限和适用边界。不得以“没有直接使用经验”“没有掌握具体功能”为开场或结论；资料没有命中时，可以基于题目中可识别的产品类型作审慎分析，并用“我实际体验下来”“我会重点看”等自然口语组织，但不得编造无法核验的具体功能、数据或合作经历。
+项目技术题（例如“这个项目用了什么技术”“技术栈是什么”“技术架构怎么做”）必须先直接列出已确认的实际 AI 技术和它们的职责：如 Agent、RAG、Workflow、模型调用、规则引擎、混合召回、向量检索、评测与人工审核；再按“技术名称—在当前项目中负责什么—为什么需要它”展开。不要把“监测—诊断—优化—验证”这类业务闭环当作技术栈，也不要只说“不是单一模型或工具”而不回答用了什么技术。只列当前项目资料已确认的技术，未确认的技术不得补造。
 需要谈效果时，应区分离线评测与线上指标：评测集、Rubric、Badcase 和回归用于验证离线质量，线上指标只用于观察真实使用效果；不能将离线结论说成线上收益，不能编造数值。
 高风险决策应以权威数据和明确版本为准，说明规则、模型与人工的分工；对低置信度、证据不足、越权或无法核验的信息，应拒答或说明资料不足并转人工接管，保留必要的审计记录。
+首次出现的纯英文术语、缩写或英文短语，必须紧跟中文解释，格式为“英文（中文解释）”；例如“RAG（检索增强生成）”“Rerank（重排序）”。已有清晰中文名称的产品名可保留原名，不必生硬翻译；同一术语在同一篇回答后续再次出现无需重复解释。
 当没有可靠命中资料时，要明确资料不足，不得借用无关项目、无关经历或上一题内容。`;
 const runtimeConfig = { asrProvider: process.env.ASR_PROVIDER || "browser", tencentRegion: process.env.TENCENT_REGION || "ap-guangzhou", tencentAppId: process.env.TENCENT_APP_ID || "", tencentSecretId: process.env.TENCENT_SECRET_ID || "", tencentSecretKey: process.env.TENCENT_SECRET_KEY || "", questionCaptureHotkey: "Alt+Space", doubaoAppId: process.env.DOUBAO_APP_ID || "", doubaoAccessToken: process.env.DOUBAO_ACCESS_TOKEN || "", doubaoResourceId: process.env.DOUBAO_RESOURCE_ID || "", doubaoEndpoint: process.env.DOUBAO_ENDPOINT || "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", aiApiUrl: process.env.AI_API_URL || "https://api.openai.com/v1/chat/completions", aiModel: process.env.AI_MODEL || "gpt-4o-mini", aiApiKey: process.env.AI_API_KEY || "" };
 const contentTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".md": "text/markdown; charset=utf-8" };
@@ -83,6 +86,9 @@ function semanticQueryFor(query = "") {
   if (/(?:CEO|高层|老板|商业价值|ROI)/iu.test(query)) anchors.push("CEO 高层视角 商业价值 ROI 战略 决策");
   if (/(?:知识库|检索).{0,10}(?:怎么|如何|设计|搭建|构建)|(?:怎么|如何|设计|搭建|构建).{0,10}(?:知识库|检索)/u.test(query)) {
     anchors.push("RAG 知识库 切片 Metadata 混合召回 Rerank 引用 评测");
+  }
+  if (/(?:用了?(?:什么|哪些)技术|技术栈|技术架构|底层技术|技术方案)/u.test(query)) {
+    anchors.push("Agent RAG Workflow 模型调用 规则引擎 混合召回 向量检索 评测 人工审核");
   }
   if (/(?:转人工|人工接管|人工兜底|低置信度|高风险|护栏)/u.test(query)) {
     anchors.push("高风险场景 置信度 拒答 人工接管 审计 Workflow");

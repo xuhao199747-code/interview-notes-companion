@@ -62,7 +62,9 @@ test("答题窗收起时变成短语音条，展开答案时再向下扩展", as
     fs.readFile(new URL("../app.js", import.meta.url), "utf8"),
   ]);
 
-  assert.match(electronMain, /const overlayWindowSizes = \{[\s\S]*?collapsed: \{ width: 760, height: 92 \}/);
+  assert.match(electronMain, /const overlayWindowSizes = \{[\s\S]*?collapsed: \{ width: 760, height: 64 \}/);
+  assert.match(electronMain, /frame:\s*false/);
+  assert.match(electronMain, /hasShadow:\s*false/);
   assert.match(electronMain, /ipcMain\.handle\("window:set-overlay-mode"/);
   assert.match(preload, /setOverlayMode/);
   assert.match(app, /function syncOverlayWindow\(\)/);
@@ -103,7 +105,7 @@ test("外部应用获得点击时收起答案，工具栏保持同宽并以高�
     fs.readFile(new URL("../config.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(electronMain, /collapsed: \{ width: 760, height: 92 \}[\s\S]*?expanded: \{ width: 760, height: 720 \}/);
+  assert.match(electronMain, /collapsed: \{ width: 760, height: 64 \}[\s\S]*?expanded: \{ width: 760, height: 720 \}/);
   assert.match(electronMain, /if \(mode === "expanded" && !windowRef\.isFocused\(\)\) windowRef\.focus\(\);/);
   assert.match(electronMain, /windowRef\.on\("blur", \(\) => windowRef\.webContents\.send\("overlay:blur"\)\)/);
   assert.match(electronMain, /setInterval\(/);
@@ -146,6 +148,27 @@ test("顶部图标按钮在固定尺寸内水平和垂直居中", async () => {
   const css = await fs.readFile(new URL("../config.css", import.meta.url), "utf8");
 
   assert.match(css, /\.overlay-action\.icon\s*\{[^}]*width:40px[^}]*height:40px[^}]*display:grid[^}]*place-items:center[^}]*line-height:1/s);
+});
+
+test("可见工具栏就是窗口边界，控制按钮不被转写文本挤掉，并提供原生拖动区域", async () => {
+  const [css, html, app, electronMain, preload] = await Promise.all([
+    fs.readFile(new URL("../config.css", import.meta.url), "utf8"),
+    fs.readFile(new URL("../index.html", import.meta.url), "utf8"),
+    fs.readFile(new URL("../app.js", import.meta.url), "utf8"),
+    fs.readFile(new URL("../electron/main.js", import.meta.url), "utf8"),
+    fs.readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(css, /#answerOverlay\s*\{[^}]*top:0[^}]*left:0[^}]*width:100%[^}]*transform:none/s);
+  assert.match(css, /#answerOverlay\s+\.listening-row\s*\{[^}]*grid-template-columns:minmax\(180px,1fr\)\s+124px\s+72px\s+40px\s+40px\s+40px/s);
+  assert.match(css, /#answerOverlay\s+\.listening-row\s*\{[^}]*overflow:hidden/s);
+  assert.match(css, /#answerOverlay\.expanded\s+#answerOverlayBody\s*\{[^}]*height:calc\(100vh - 64px\)/s);
+  assert.match(html, /id="voiceRepeatButton"[\s\S]*?id="previousAnswerButton"[\s\S]*?id="answerOverlayToggle"[\s\S]*?id="alwaysOnTopButton"[\s\S]*?id="overlaySettingsButton"/);
+  assert.match(electronMain, /ipcMain\.handle\("window:move-overlay-by"/);
+  assert.match(preload, /moveOverlayBy: \(deltaX, deltaY\) => ipcRenderer\.invoke\("window:move-overlay-by", deltaX, deltaY\)/);
+  assert.match(app, /function setupOverlayWindowDrag\(\)/);
+  assert.match(app, /\$\("transcriptCard"\)\.addEventListener\("pointerdown"/);
+  assert.match(app, /moveOverlayBy\?\.\(deltaX, deltaY\)/);
 });
 
 test("浮层以更强模糊和文字层级保证答案可读", async () => {

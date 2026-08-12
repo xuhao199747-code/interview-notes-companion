@@ -20,6 +20,15 @@ test("解析 Markdown 标题和正文", () => {
   assert.match(sections[1].content, /用户访谈/);
 });
 
+test("飞书多栏逐字稿中的每道面试题拆成独立检索段", () => {
+  const markdown = `# 项目\n\n<grid>\n<column>\n\`\`\`plaintext\n你 AGENT 的架构是什么？\n主 Agent 负责拆解任务并调度专业 Agent。\n\n你怎么做的 RAG？\n采用混合召回、重排和评测闭环。\n\`\`\`\n</column>\n</grid>`;
+  const sections = parseMarkdown(markdown, "飞书原文.md");
+
+  assert.deepEqual(sections.map((section) => section.title), ["你 AGENT 的架构是什么？", "你怎么做的 RAG？"]);
+  assert.match(sections[0].content, /主 Agent/);
+  assert.match(sections[1].content, /混合召回/);
+});
+
 test("超长资料章节会拆成可独立检索的段落块，而不是整章作为一个候选", () => {
   const longParagraphs = Array.from({ length: 5 }, (_, index) => `第 ${index + 1} 段资料，${"需求、流程、规则和边界。".repeat(90)}`).join("\n\n");
   const sections = parseMarkdown(`# AI 产品通用能力\n\n## 3.3 功能规则表\n\n${longParagraphs}\n\n## 请做一下自我介绍\n\n我有五年 AI 产品经验，负责过 GEO 与旅游智能营销项目。`, "通用能力.md");

@@ -243,3 +243,14 @@ body.overlay-mode .workspace { height:100vh; padding:0; }
 #answerOverlay.expanded .result-card h3 { color:#f6f6f6; }
 #answerOverlay.expanded .result-card p,#answerOverlay.expanded .document-excerpt,#answerOverlay.expanded .ai-result .answer-body { color:#d8d8d8; }
 #answerOverlay.expanded .result-meta { color:#b6b6b6; }
+
+/* The frameless window is exactly the visible overlay; drag the toolbar itself. */
+#answerOverlay { top:0; left:0; width:100%; transform:none; }
+#answerOverlay .listening-row { display:grid; grid-template-columns:minmax(180px,1fr) 124px 72px 40px 40px 40px; align-items:center; width:100%; min-width:0; overflow:hidden; }
+#answerOverlay .transcript-card { min-width:0; width:100%; -webkit-app-region:drag; }
+#answerOverlay .repeat-question-button { width:124px; padding:0; }
+#answerOverlay .overlay-action:not(.icon) { width:72px; padding:0; }
+#answerOverlay .live-panel { -webkit-app-region:drag; }
+#answerOverlay .live-panel button,#answerOverlay .transcript-placeholder { -webkit-app-region:no-drag; }
+#answerOverlay .waveform { -webkit-app-region:drag; }
+#answerOverlay.expanded #answerOverlayBody { height:calc(100vh - 64px); }

@@ -25,6 +25,16 @@ test("具体询问做过哪些项目时应展示自我介绍中的项目经历",
   assert.equal(route.matches[0].title, "自我介绍");
 });
 
+test("泛问“讲一下你的项目”直接使用两个项目概览，不误命中项目复盘方法论", () => {
+  const sections = [
+    { title: "请做一下自我介绍（核心优势）", project: "AI 产品通用能力", content: "我目前重点参与两个 AI 项目：AlphaRank GEO 品牌增长平台，以及智能营销项目的成交转化模块。" },
+    { title: "如何复盘一个 AI 项目（怎样讲清业务、技术和个人价值）", project: "AI 产品通用能力", content: "复盘时按业务目标、技术方案、个人职责、评测指标和结果展开。", score: 50 },
+  ];
+  const route = routeAnswer("讲一下你的项目", sections);
+  assert.equal(route.mode, "direct");
+  assert.deepEqual(route.matches.map((item) => item.title), ["请做一下自我介绍（核心优势）"]);
+});
+
 test("资料没有直接回答时不能用自我介绍冒充项目复盘答案", () => {
   const sections = [{ title: "自我介绍", content: "我有五年产品经验，负责过 AI 产品和项目交付。" }];
   const route = routeAnswer("如果让你重新做一个项目，你会怎么做", sections);

@@ -70,8 +70,60 @@ export const defaultGlossary = [
 
 // 这层不受用户上传术语表覆盖：用于修正 ASR 对 AI 产品高频缩写的稳定误识别。
 const asrCorrections = [
-  { term: "RAG", aliases: ["IG", "AIG", "R A G", "R G", "阿瑞吉", "艾瑞吉"] },
+  { term: "RAG", aliases: ["IG", "AIG", "RH", "R H", "R A G", "R G", "阿瑞吉", "艾瑞吉"] },
   { term: "Coze", aliases: ["扣字", "扣子平台"] },
+  // AI 编程工具常以英文发音出现，ASR 往往保留了近似拼写；统一后才能命中术语表和产品分析题。
+  { term: "Cursor", aliases: ["COSER", "Coser", "卡瑟", "卡色", "卡索"] },
+  { term: "Qoder", aliases: ["quder", "Quder", "扣德", "库德", "Q coder"] },
+  { term: "Claude Code", aliases: ["Claude 扣得", "Claude code", "克劳德扣得", "克劳德代码", "克劳德 code", "Claude C O D E", "克劳德扣德", "Claude coder"] },
+  { term: "Codex", aliases: ["code x", "c o d e x", "kodeks", "可戴克斯", "扣得 X", "Codex CLI", "OpenAI Codex"] },
+  { term: "GitHub Copilot", aliases: ["哥派勒", "Copilot", "GitHub copilot", "Git Hub Copilot"] },
+  { term: "Windsurf", aliases: ["温室", "Wind surf", "温瑟夫"] },
+  { term: "Cline", aliases: ["克莱恩", "C line"] },
+  { term: "Roo Code", aliases: ["Roo code", "鲁代码", "Roo扣德"] },
+  { term: "Trae", aliases: ["Trae IDE", "吹", "特雷"] },
+  { term: "Lovable", aliases: ["拉弗布尔", "Loveable"] },
+  { term: "v0", aliases: ["V 零", "V0", "V zero"] },
+  { term: "Replit", aliases: ["Replit", "瑞普利特", "瑞皮特"] },
+  { term: "Bolt.new", aliases: ["Bolt new", "Bolt", "博尔特 new"] },
+  { term: "Kiro", aliases: ["凯洛", "开罗", "K 罗"] },
+  { term: "Devin", aliases: ["戴文", "德文", "Devon"] },
+  { term: "Dify", aliases: ["迪飞", "D 菲", "Dify AI"] },
+  { term: "n8n", aliases: ["恩8恩", "N 八 N", "n 8 n"] },
+  { term: "LangChain", aliases: ["朗链", "Lang chain", "蓝链"] },
+  { term: "LangGraph", aliases: ["朗图", "Lang graph", "蓝图"] },
+  { term: "Ollama", aliases: ["欧拉马", "奥拉马", "O lama"] },
+  { term: "Milvus", aliases: ["米尔维斯", "密尔维斯", "Milvus 向量库"] },
+  { term: "ModelScope", aliases: ["魔搭", "模型范围", "Model scope"] },
+  { term: "百炼", aliases: ["阿里百炼", "百炼平台", "BaiLian"] },
+  { term: "Hugging Face", aliases: ["哈金费斯", "抱脸", "HuggingFace"] },
+  { term: "LlamaIndex", aliases: ["拉马索引", "Llama index"] },
+  { term: "Pinecone", aliases: ["派恩空", "松果向量库"] },
+  { term: "Chroma", aliases: ["克罗马", "ChromaDB"] },
+  { term: "Weaviate", aliases: ["微维特", "维维特"] },
+  { term: "Supabase", aliases: ["苏帕贝斯", "Supabase 数据库"] },
+  { term: "Vercel", aliases: ["维赛尔", "弗塞尔"] },
+  { term: "Docker", aliases: ["多克", "道克", "Docker 容器"] },
+  { term: "Kubernetes", aliases: ["库伯内斯", "K 八 S", "K8s"] },
+  { term: "GitHub", aliases: ["Git Hub", "吉特哈布"] },
+  { term: "GitLab", aliases: ["Git Lab", "吉特拉布"] },
+  { term: "Jira", aliases: ["吉拉", "基拉"] },
+  { term: "Figma", aliases: ["菲格马", "费格马"] },
+  { term: "Notion", aliases: ["诺申", "Notion AI"] },
+  { term: "Perplexity", aliases: ["珀普莱克斯提", "Perplexity AI"] },
+  { term: "Midjourney", aliases: ["米德贾尼", "MJ", "M J"] },
+  { term: "Sora", aliases: ["索拉", "Sora 视频"] },
+  { term: "Runway", aliases: ["润威", "Runway 视频"] },
+  { term: "Hailuo", aliases: ["海螺", "海洛", "Hailuo AI"] },
+  { term: "DeepSeek", aliases: ["Deep seek", "深度求索", "DS"] },
+  { term: "Qwen", aliases: ["通义千问", "千问", "Qwen 模型"] },
+  { term: "Kimi K3", aliases: ["Kimi K 3", "Kimi K三", "K 3", "K 三", "Kimi 三代", "Kimi K3 模型"] },
+  { term: "Kimi", aliases: ["Kimi AI", "月之暗面"] },
+  { term: "豆包", aliases: ["Doubao", "抖包"] },
+  { term: "Gemini", aliases: ["吉米尼", "杰米尼"] },
+  { term: "Grok", aliases: ["格洛克", "Grock"] },
+  { term: "Amazon Q Developer", aliases: ["亚马逊 Q", "Amazon Q", "Q Developer"] },
+  { term: "Gemini Code Assist", aliases: ["Gemini 代码助手", "吉米尼代码助手"] },
   // 语音识别会稳定把 GEO 听成 CEO；面试资料检索应优先还原为项目名。
   { term: "GEO", aliases: ["CEO", "GU", "G U", "G E O", "刺幽", "基欧", "极欧", "机欧"] },
 ];
@@ -104,13 +156,20 @@ function normalizeAmbiguousGeoAsr(question = "") {
   return question.replace(/最优(?=\s*(?:这个|该)?\s*(?:项目|平台|品牌增长))/gu, "GEO");
 }
 
+function normalizeCompoundCodingToolAsr(question = "") {
+  // 先处理包含“Code”的复合品牌名，避免后续把其中的“扣德”单独误改成 Qoder。
+  return question
+    .replace(/(?:Claude\s*(?:扣得|扣德|代码|code|c\s*o\s*d\s*e|coder)|克劳德\s*(?:扣得|扣德|代码|code|c\s*o\s*d\s*e|coder))/giu, "Claude Code")
+    .replace(/(?:OpenAI\s*)?(?:Codex\s*CLI|code\s*x|c\s*o\s*d\s*e\s*x|kodeks|可戴克斯|扣得\s*X)/giu, "Codex");
+}
+
 export function normalizeQuestion(question = "", glossary = []) {
   return [...asrCorrections, ...glossary].reduce((normalized, entry) => {
     if (!entry?.term || !Array.isArray(entry.aliases)) return normalized;
     const aliases = entry.aliases.filter(Boolean).sort((a, b) => b.length - a.length);
     if (!aliases.length) return normalized;
     return replaceAliases(normalized, aliases, entry.term);
-  }, normalizeAmbiguousGeoAsr(question));
+  }, normalizeCompoundCodingToolAsr(normalizeAmbiguousGeoAsr(question)));
 }
 
 export function parseGlossaryMarkdown(markdown = "") {

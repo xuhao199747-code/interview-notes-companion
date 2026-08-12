@@ -75,3 +75,8 @@ test("提交结束帧后保留连接一小段时间，等待最后的转写结�
   await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(session.socket.closeCalls, 1);
 });
+
+test("默认连接保留时间覆盖长句的最终转写等待窗口", () => {
+  const session = new DoubaoAsrSession(config, () => {});
+  assert.equal(session.closeDelayMs, 3000);
+});

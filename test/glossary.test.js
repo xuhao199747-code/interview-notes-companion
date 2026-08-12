@@ -89,6 +89,8 @@ test("未配置别名的问题保持原样", () => {
 test("AI 产品经理高频术语的 ASR 误识别始终会被纠正", () => {
   assert.equal(normalizeQuestion("你会怎么做 AIG 系统", []), "你会怎么做 RAG 系统");
   assert.equal(normalizeQuestion("你会怎么做 IG 系统", []), "你会怎么做 RAG 系统");
+  assert.equal(normalizeQuestion("你会怎么做 RH 系统", []), "你会怎么做 RAG 系统");
+  assert.equal(normalizeQuestion("你会怎么做 R H 系统", []), "你会怎么做 RAG 系统");
   assert.equal(normalizeQuestion("你会怎么做阿瑞吉系统", []), "你会怎么做RAG系统");
   assert.equal(normalizeQuestion("扣字怎么搭", []), "Coze怎么搭");
   assert.equal(normalizeQuestion("介绍一下 CEO 项目的指标", []), "介绍一下 GEO 项目的指标");
@@ -97,6 +99,42 @@ test("AI 产品经理高频术语的 ASR 误识别始终会被纠正", () => {
   assert.equal(normalizeQuestion("请介绍一下最优这个项目", []), "请介绍一下GEO这个项目");
   assert.equal(normalizeQuestion("最优方案怎么选", []), "最优方案怎么选");
   assert.equal(normalizeQuestion("怎么做 AIGC 产品", []), "怎么做 AIGC 产品");
+});
+
+test("常见 AI 编程工具名的语音误识别会在检索前还原", () => {
+  assert.equal(normalizeQuestion("你用 COSER 做过什么", []), "你用 Cursor 做过什么");
+  assert.equal(normalizeQuestion("你用 quder 做过什么", []), "你用 Qoder 做过什么");
+  assert.equal(normalizeQuestion("Claude 扣得优势是什么", []), "Claude Code优势是什么");
+  assert.equal(normalizeQuestion("GitHub Copilot 和哥派勒怎么选", []), "GitHub Copilot 和GitHub Copilot怎么选");
+  assert.equal(normalizeQuestion("温室和 Cursor 怎么选", []), "Windsurf和 Cursor 怎么选");
+});
+
+test("AI 开发平台、Agent 工具与基础设施的音近名称会还原", () => {
+  assert.equal(normalizeQuestion("凯洛怎么做规格驱动开发", []), "Kiro怎么做规格驱动开发");
+  assert.equal(normalizeQuestion("戴文能不能自动修 bug", []), "Devin能不能自动修 bug");
+  assert.equal(normalizeQuestion("迪飞和扣子怎么选", []), "Dify和扣子怎么选");
+  assert.equal(normalizeQuestion("恩8恩怎么编排", []), "n8n怎么编排");
+  assert.equal(normalizeQuestion("朗链和朗图的区别", []), "LangChain和LangGraph的区别");
+  assert.equal(normalizeQuestion("欧拉马本地部署怎么做", []), "Ollama本地部署怎么做");
+  assert.equal(normalizeQuestion("米尔维斯怎么建向量库", []), "Milvus怎么建向量库");
+  assert.equal(normalizeQuestion("魔搭和百炼怎么选模型", []), "ModelScope和百炼怎么选模型");
+});
+
+test("Codex 的音近、拆读和误拼会还原，但普通代码词不被污染", () => {
+  assert.equal(normalizeQuestion("你用 code x 做过什么", []), "你用 Codex 做过什么");
+  assert.equal(normalizeQuestion("你用 C O D E X 做过什么", []), "你用 Codex 做过什么");
+  assert.equal(normalizeQuestion("你用 kodeks 做过什么", []), "你用 Codex 做过什么");
+  assert.equal(normalizeQuestion("可戴克斯怎么做代码审查", []), "Codex怎么做代码审查");
+  assert.equal(normalizeQuestion("你觉得扣得 X 和 Claude Code 怎么选", []), "你觉得Codex 和 Claude Code 怎么选");
+  assert.equal(normalizeQuestion("代码评审和代码生成怎么做", []), "代码评审和代码生成怎么做");
+  assert.equal(normalizeQuestion("写 code 的规范是什么", []), "写 code 的规范是什么");
+});
+
+test("Claude Code 的音近、拆读和误拼会独立还原，不和 Codex 混淆", () => {
+  assert.equal(normalizeQuestion("你用 Claude 扣得做过什么", []), "你用 Claude Code做过什么");
+  assert.equal(normalizeQuestion("你用克劳德 code做过什么", []), "你用Claude Code做过什么");
+  assert.equal(normalizeQuestion("Claude C O D E 怎么用", []), "Claude Code 怎么用");
+  assert.equal(normalizeQuestion("克劳德扣德和可戴克斯怎么选", []), "Claude Code和Codex怎么选");
 });
 
 test("从 Markdown 术语文档读取标准术语与别名", () => {

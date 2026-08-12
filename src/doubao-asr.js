@@ -83,7 +83,8 @@ export class DoubaoAsrSession {
     this.pendingAudio = [];
     this.pendingAudioBytes = 0;
     this.maxPendingAudioBytes = 16000 * 2 * 8;
-    this.closeDelayMs = 1000;
+    // 长问题结束后，云端仍会补发完整的最终转写；必须覆盖页面的最终结果等待窗口。
+    this.closeDelayMs = 3000;
   }
 
   start() {

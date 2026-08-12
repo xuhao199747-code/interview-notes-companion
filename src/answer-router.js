@@ -33,6 +33,12 @@ function isProfileQuestion(query = "") {
     || /^(?:请|麻烦)?(?:给我|给咱们|给大家)?介绍(?:一下)?[。？?!！]*$/u.test(normalized);
 }
 
+function isCandidateProjectOverviewQuestion(query = "") {
+  const normalized = query.replace(/\s+/gu, "").trim();
+  return /^(?:请|麻烦)?(?:讲一下|讲讲|说说|介绍一下|介绍).{0,6}(?:你|您)(?:的)?项目[。？?!！]*$/u.test(normalized)
+    || /^(?:请|麻烦)?(?:讲一下|讲讲|说说|介绍一下|介绍).{0,6}(?:你|您)(?:做过|负责|参与)(?:的)?项目[。？?!！]*$/u.test(normalized);
+}
+
 function isProfileSection(section = {}) {
   const title = String(section.title || "").trim();
   return /(自我介绍|个人经历|职业经历|我的情况)/u.test(title)
@@ -89,6 +95,13 @@ function rankedMatches(query, sections, candidates) {
 }
 
 export function routeAnswer(query, sections, { allowProjectOverview = false, candidates } = {}) {
+  if (isCandidateProjectOverviewQuestion(query)) {
+    const profileSections = sections.filter(isProfileSection);
+    if (!profileSections.length) return { mode: "fallback", matches: [], confidence: 0, reason: "没有项目概览资料" };
+    const matches = rankedMatches(query, profileSections, candidates);
+    const strongest = matches.length ? matches.slice(0, 1) : profileSections.slice(0, 1).map((section) => ({ ...section, score: 12, matchType: "keyword" }));
+    return { mode: "direct", matches: strongest, confidence: 94, reason: "资料直接回答两个代表项目概览" };
+  }
   if (isProfileQuestion(query)) {
     const profileSections = sections.filter(isProfileSection);
     if (!profileSections.length) return { mode: "fallback", matches: [], confidence: 0, reason: "没有个人经历资料" };

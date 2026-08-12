@@ -3,6 +3,7 @@ export function parseMarkdown(markdown, fileName = "未命名文档") {
   const sections = [];
   let activeProject = "";
   let inArchive = false;
+  let inCodeBlock = false;
   let current = { title: fileName.replace(/\.(md|markdown|go)$/i, ""), level: 1, body: [], project: activeProject, source: fileName, archive: inArchive };
 
   for (const rawLine of lines) {
@@ -13,8 +14,11 @@ export function parseMarkdown(markdown, fileName = "未命名文档") {
       // 完整原文档案用于项目题和追问取证，但不能污染“如何设计 Agent”这类通用题。
       if (/(完整原文资料|完整面试问题原文说明)/u.test(heading[2])) inArchive = true;
       current = { title: heading[2].trim(), level: heading[1].length, body: [], project: activeProject, source: fileName, archive: inArchive };
-    } else if (!rawLine.match(/^\s*```/)) {
-      current.body.push(rawLine.replace(/^\s*[-*+]\s+/, "").trim());
+    } else if (rawLine.match(/^\s*```/)) {
+      inCodeBlock = !inCodeBlock;
+    } else {
+      const line = rawLine.replace(/^\s*[-*+]\s+/, "").trim();
+      current.body.push(inCodeBlock ? `\u0000code\u0000${line}` : line);
     }
   }
   if (current.body.join(" ").trim()) sections.push(...finalizeSection(current));
@@ -65,7 +69,9 @@ function splitContent(content = "") {
 }
 
 function finalizeSection(section) {
-  const content = section.body.join("\n").trim();
+  const interviewAnswers = extractCodeBlockQuestions(section);
+  if (interviewAnswers.length) return interviewAnswers;
+  const content = section.body.map((line) => line.replace(/^\u0000code\u0000/u, "")).join("\n").trim();
   const chunks = splitContent(content);
   return chunks.map((chunk, index) => ({
     title: section.title,
@@ -78,6 +84,35 @@ function finalizeSection(section) {
     content: chunk,
     text: `${section.title} ${chunk}`,
   }));
+}
+
+function extractCodeBlockQuestions(section) {
+  const codeLines = section.body
+    .filter((line) => line.startsWith("\u0000code\u0000"))
+    .map((line) => line.replace(/^\u0000code\u0000/u, "").trim());
+  const isQuestion = (line) => /[？?]$/u.test(line)
+    || /^(?:你|您|我们|项目|RAG|Agent|Prompt|Skill|Workflow|MCP).{0,24}(?:怎么|如何|什么|为什么|多少|哪些|是否|有没有|架构|指标|职责)/iu.test(line);
+  const starts = codeLines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => isQuestion(line));
+  if (!starts.length) return [];
+
+  return starts.flatMap(({ line: title, index }, questionIndex) => {
+    const end = starts[questionIndex + 1]?.index ?? codeLines.length;
+    const content = codeLines.slice(index + 1, end).join("\n").trim();
+    if (!content) return [];
+    return splitContent(content).map((chunk, chunkIndex, chunks) => ({
+      title,
+      level: section.level + 1,
+      project: section.project,
+      source: section.source,
+      archive: Boolean(section.archive),
+      chunkIndex,
+      chunkCount: chunks.length,
+      content: chunk,
+      text: `${title} ${chunk}`,
+    }));
+  });
 }
 
 function tokenize(input) {

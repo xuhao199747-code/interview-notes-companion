@@ -63,6 +63,13 @@ test("明确询问候选人经历时才允许使用个人经历", () => {
   assert.equal(materials.some((item) => item.title === "自我介绍"), true);
 });
 
+test("泛问候选人的项目概览属于经历题，保留两个项目的概览资料", () => {
+  const scope = classifyAnswerScope("讲一下你的项目");
+  const materials = selectAnswerMaterials({ scope, sections });
+  assert.equal(scope, "experience");
+  assert.equal(materials.some((item) => item.title === "自我介绍"), true);
+});
+
 test("自我介绍一下必须识别为候选人经历题", () => {
   const scope = classifyAnswerScope("自我介绍一下", { answerMode: "auto" });
   const materials = selectAnswerMaterials({ scope, sections });
@@ -98,6 +105,32 @@ test("外部产品交互题不借用 AI 知识库或候选人项目", () => {
   assert.equal(shouldUsePersonalContext(scope), false);
 });
 
+test("口语化的外部产品体验题不因产品名不在词表而退化成资料不足", () => {
+  const scope = classifyAnswerScope("你有没有用过 wokebody 这个产品呢？这个产品它的好处是什么？");
+  assert.equal(scope, "product");
+  assert.deepEqual(selectAnswerMaterials({ scope, sections }), []);
+});
+
+test("点名 AI 模型的产品认知题进入产品分析，不退化为参数方法论", () => {
+  const scope = classifyAnswerScope("你了解 Kimi K3 吗？它有什么特点？");
+  assert.equal(scope, "product");
+  const materials = selectAnswerMaterials({ scope, sections: [
+    { title: "Kimi K3", source: "AI产品经理术语表.md", content: "Kimi K3 的产品资料" },
+    { title: "GEO 项目", source: "面试知识库-GEO品牌增长平台.md", content: "项目资料" },
+  ] });
+  assert.deepEqual(materials.map((item) => item.title), ["Kimi K3"]);
+});
+
+test("AI 趋势题优先使用具体近期产品资料，不退化成技术清单", () => {
+  const scope = classifyAnswerScope("你最近关注什么 AI 趋势，或者有什么新模型？");
+  assert.equal(scope, "general");
+  const materials = selectAnswerMaterials({ scope, query: "你最近关注什么 AI 趋势，或者有什么新模型？", sections: [
+    { title: "你最近关注什么 AI 趋势，或者新发布了什么模型？", source: "AI产品经理术语表.md", content: "我最近关注 Kimi K3。" },
+    { title: "AI 产品经理需要掌握哪些技术知识？", source: "AI产品经理术语表.md", content: "大模型、RAG、Agent。" },
+  ] });
+  assert.deepEqual(materials.map((item) => item.title), ["你最近关注什么 AI 趋势，或者新发布了什么模型？"]);
+});
+
 test("经历问题自动保留相关项目资料，但不把回答 Skill 当知识库检索", () => {
   const experienceSections = [
     { title: "自我介绍", content: "我做过 GEO。", project: "自我介绍", sourceType: "knowledge" },
@@ -128,7 +161,7 @@ test("页面按回答范围选择资料，并只在允许时发送个人背景",
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.match(app, /classifyAnswerScope\(normalizedQuery/);
-  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: scoped\.sections, query: normalizedQuery \}\)/);
+  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: candidateSections, query: normalizedQuery \}\)/);
   assert.match(app, /shouldUsePersonalContext\(scope\) \? selectPersonalContext/);
   assert.match(app, /filter\(\(doc\) => doc\.type !== "skill"\)/);
   assert.doesNotMatch(html, /id="answerModeSelect"/);
@@ -150,6 +183,13 @@ test("服务端回答范围优先于上传 Skill，通用题不得被 Skill 改�
   assert.match(rules, /AI 产品经理/);
 });
 
+test("外部产品体验题以使用者视角直接分析，不能回复没有使用经验", async () => {
+  const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
+  assert.match(server, /外部产品体验题/);
+  assert.match(server, /使用者视角/);
+  assert.match(server, /不得以“没有直接使用经验”/);
+});
+
 test("服务端不可变策略约束通用题的表达、评测与高风险边界", async () => {
   const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
   assert.match(server, /可以、建议、我会/);
@@ -164,10 +204,40 @@ test("服务端不可变策略约束通用题的表达、评测与高风险边�
   assert.match(server, /审计/);
 });
 
+test("项目技术题先回答实际 AI 技术，而不是把业务闭环当技术栈", async () => {
+  const [server, rules] = await Promise.all([
+    readFile(new URL("../server.js", import.meta.url), "utf8"),
+    readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8"),
+  ]);
+  assert.match(server, /项目技术题/);
+  assert.match(server, /Agent、RAG、Workflow/);
+  assert.match(server, /不要把“监测—诊断—优化—验证”这类业务闭环当作技术栈/);
+  assert.match(server, /技术栈是什么/);
+  assert.match(rules, /项目技术题/);
+  assert.match(rules, /Agent、RAG、Workflow/);
+  assert.match(rules, /不能当作技术栈/);
+});
+
+test("项目技术栈问法会为本地检索补充 AI 技术锚点", async () => {
+  const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
+  assert.match(server, /用了什么技术/);
+  assert.match(server, /技术栈|技术架构/);
+  assert.match(server, /Agent RAG Workflow 模型调用 规则引擎 混合召回 向量检索 评测 人工审核/);
+});
+
 test("通用 AI 题用可执行建议表达，不把方法论说成候选人项目经历", async () => {
   const rules = await readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8");
   assert.match(rules, /可以[、，]建议[、，]我会/);
   assert.match(rules, /不得写成候选人的项目经历/);
+});
+
+test("AI 趋势题要求先讲具体近期产品，而不是技术知识清单", async () => {
+  const rules = await readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8");
+  assert.match(rules, /最近关注什么 AI 趋势/);
+  assert.match(rules, /具体近期产品或模型/);
+  assert.match(rules, /Kimi K3/);
+  assert.match(rules, /Hailuo 2\.3/);
+  assert.match(rules, /技术知识清单/);
 });
 
 test("通用 AI 题包含评测闭环，且区分离线评测与线上指标", async () => {
@@ -195,8 +265,27 @@ test("生成指令只输出可直接口述的答案，不强制结论或分析�
   ]);
   assert.match(server, /只输出候选人可以直接说出口的答案/);
   assert.doesNotMatch(server, /先输出一行“结论”/);
-  assert.match(rules, /不分析面试官/);
+  assert.match(rules, /不解释面试官考察点/);
   assert.doesNotMatch(rules, /必须先给一句可立即开口的结论/);
+});
+
+test("生成指令禁止把题意复述、面试官考察点或回答过程说给面试官听", async () => {
+  const [server, rules] = await Promise.all([
+    readFile(new URL("../server.js", import.meta.url), "utf8"),
+    readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8"),
+  ]);
+  assert.match(server, /不要复述题意/);
+  assert.match(server, /不要揣测或解释面试官考察点/);
+  assert.match(server, /我会这样组织我的理解/);
+  assert.match(rules, /不复述题意/);
+  assert.match(rules, /不解释面试官考察点/);
+});
+
+test("LLM 首次使用纯英文术语时附上中文解释", async () => {
+  const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
+  assert.match(server, /首次出现的纯英文术语、缩写或英文短语/);
+  assert.match(server, /紧跟中文解释/);
+  assert.match(server, /RAG（检索增强生成）/);
 });
 
 test("LLM 只参考按题型路由后的资料，原文逐字稿不会全局覆盖通用题", async () => {
@@ -204,7 +293,7 @@ test("LLM 只参考按题型路由后的资料，原文逐字稿不会全局覆�
     readFile(new URL("../server.js", import.meta.url), "utf8"),
     readFile(new URL("../app.js", import.meta.url), "utf8"),
   ]);
-  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: scoped\.sections, query: normalizedQuery \}\)/);
+  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: candidateSections, query: normalizedQuery \}\)/);
   assert.match(server, /只参考当前问题命中的资料/);
   assert.match(server, /通用题按通用资料回答/);
   assert.match(server, /项目题按对应项目资料回答/);

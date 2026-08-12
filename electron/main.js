@@ -21,13 +21,14 @@ let startServer;
 let activeQuestionHotkey = null;
 let activePreviousAnswerHotkey = null;
 let activeQuestionCaptureId = 0;
+let activeQuestionCaptureAudioFrames = 0;
 let questionCaptureRendererReady = false;
 let pendingQuestionCaptureHotkey = false;
 let isQuitting = false;
 let windowAlwaysOnTop = true;
 let overlayWindowResizeTimer = null;
 const overlayWindowSizes = {
-  collapsed: { width: 760, height: 92 },
+  collapsed: { width: 760, height: 64 },
   expanded: { width: 760, height: 720 },
   settings: { width: 760, height: 800 },
 };
@@ -108,9 +109,11 @@ async function createWindow() {
   const address = localServer.address();
   windowRef = new BrowserWindow({
     width: 760,
-    height: 92,
+    height: 64,
     minWidth: 460,
-    minHeight: 88,
+    minHeight: 64,
+    frame: false,
+    hasShadow: false,
     transparent: true,
     backgroundColor: "#00000000",
     title: "面试资料伴侣",
@@ -155,6 +158,7 @@ ipcMain.handle("question-capture:start", async () => {
   if (!validation.valid) return { ok: false, error: validation.message };
   questionCaptureSession?.stop();
   const captureId = ++activeQuestionCaptureId;
+  activeQuestionCaptureAudioFrames = 0;
   questionCaptureSession = createAsrSession(config, (payload) => windowRef?.webContents.send("question-capture:event", { ...payload, captureId }));
   questionCaptureSession.start();
   return { ok: true, captureId };
@@ -163,7 +167,13 @@ ipcMain.handle("question-capture:stop", async () => { questionCaptureSession?.st
 ipcMain.on("question-capture:audio", (_event, chunk) => {
   if (!questionCaptureSession || !chunk) return;
   const audio = Buffer.from(chunk);
-  if (audio.length) questionCaptureSession.sendAudio(audio);
+  if (!audio.length) return;
+  activeQuestionCaptureAudioFrames += 1;
+  // 只回传计数，不回传声音内容；用于明确区分“麦克风没采到”与“云端没转写”。
+  if (activeQuestionCaptureAudioFrames === 1 || activeQuestionCaptureAudioFrames % 12 === 0) {
+    windowRef?.webContents.send("question-capture:event", { type: "audio", captureId: activeQuestionCaptureId, audioFrames: activeQuestionCaptureAudioFrames });
+  }
+  questionCaptureSession.sendAudio(audio);
 });
 ipcMain.handle("question-capture:configure-hotkey", (_event, hotkey) => updateQuestionCaptureHotkey(hotkey));
 ipcMain.handle("question-capture:renderer-ready", () => {
