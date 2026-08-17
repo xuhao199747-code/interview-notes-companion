@@ -9,12 +9,24 @@ test("服务端提供本地语义检索接口，并在保存资料时预建索�
   assert.match(server, /semanticIndex\.search\(semanticQueryFor\(query\), sections/);
 });
 
+test("回答 Skill 和资料转换 Skill 不参与服务端语义索引", async () => {
+  const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
+  assert.match(server, /document\?\.type !== "skill" && document\?\.type !== "converter-skill"/);
+});
+
 test("桌面端将 ONNX 语义模型移到独立 Node Worker，而不是关闭语义召回", async () => {
   const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
   const worker = await readFile(new URL("../src/semantic-worker-client.js", import.meta.url), "utf8");
   assert.match(server, /createSemanticWorkerClient/);
   assert.match(worker, /ELECTRON_RUN_AS_NODE: "1"/);
   assert.match(worker, /semantic-worker\.js/);
+});
+
+test("桌面端启动后延迟预建全量语义索引，避免首屏和模型初始化抢占 CPU", async () => {
+  const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
+
+  assert.match(server, /const startupSemanticIndexDelayMs = 3000;/);
+  assert.match(server, /setTimeout\(\(\) => \{[\s\S]*?semanticIndex\.index\(sectionsFromDocuments\(documents\)\)[\s\S]*?\}, startupSemanticIndexDelayMs\)/);
 });
 
 test("语义 Worker 出错时接口返回显式降级状态，而不是伪装成空结果", async () => {

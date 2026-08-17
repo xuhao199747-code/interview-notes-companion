@@ -20,7 +20,7 @@ test("旅游项目、营销智能回答和 Attrip 都路由到旅游资料", () 
   }
 });
 
-test("通用术语表作为可检索资料而不是只做别名替换", async () => {
+test("通用术语表只做别名替换，不作为可检索资料", async () => {
   const { bundledKnowledgeFiles } = await import("../src/bundled-knowledge.js");
-  assert.equal(bundledKnowledgeFiles.includes("AI产品经理术语表.md"), true);
+  assert.equal(bundledKnowledgeFiles.includes("AI产品经理术语表.md"), false);
 });

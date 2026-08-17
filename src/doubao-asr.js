@@ -27,10 +27,26 @@ function extractPayload(buffer) {
 }
 
 export function createDoubaoRequest(config, connectId = randomUUID()) {
+  const hotwords = Array.isArray(config.doubaoHotwords)
+    ? [...new Set(config.doubaoHotwords.map((word) => String(word || "").trim()).filter(Boolean))].slice(0, 5000)
+    : [];
+  const request = {
+    model_name: "bigmodel",
+    enable_itn: true,
+    enable_punc: true,
+    enable_ddc: false,
+    show_utterances: true,
+    // 保留首段流式结果，同时在结束帧后让豆包返回更准确的二遍最终结果。
+    enable_nonstream: true,
+    result_type: "full"
+  };
+  if (hotwords.length) request.corpus = {
+    context: JSON.stringify({ hotwords: hotwords.map((word) => ({ word })) })
+  };
   const configPayload = Buffer.from(JSON.stringify({
     user: { uid: "interview-notes-companion" },
     audio: { format: "pcm", codec: "raw", rate: 16000, bits: 16, channel: 1 },
-    request: { model_name: "bigmodel", enable_itn: true, enable_punc: true, enable_ddc: false, show_utterances: true, result_type: "full" }
+    request
   }));
   return {
     url: config.doubaoEndpoint || defaultDoubaoEndpoint,

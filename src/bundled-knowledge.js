@@ -1,14 +1,13 @@
-export const bundledKnowledgeFiles = [
-  "面试知识库-GEO品牌增长平台.md",
-  "面试知识库-旅游智能营销.md",
-  "面试知识库-AI产品通用能力.md",
-  "AI产品经理术语表.md",
-];
+// 候选人的面试资料只存在本机资料库，开源包不内置、下载或上传任何个人项目原文。
+export const bundledKnowledgeFiles = [];
 
 export function mergeBundledDocuments(current = [], bundled = []) {
-  const bundledNames = new Set(bundled.map((document) => document.name));
+  const retained = [...current];
+  const existingNames = new Set(retained.map((document) => document.name));
   return [
-    ...current.filter((document) => !bundledNames.has(document.name)),
-    ...bundled.map((document) => ({ name: document.name, markdown: document.markdown, type: "knowledge" })),
+    ...retained,
+    ...bundled
+      .filter((document) => !existingNames.has(document.name))
+      .map((document) => ({ name: document.name, markdown: document.markdown, type: "knowledge" })),
   ];
 }

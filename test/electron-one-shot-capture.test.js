@@ -12,11 +12,14 @@ test("主进程只暴露一次性识别 IPC", async () => {
   assert.match(main, /question-capture:stop/);
   assert.match(main, /question-capture:audio/);
   assert.match(main, /question-capture:renderer-ready/);
+  assert.match(main, /question-capture:configure-hotwords/);
+  assert.match(main, /doubaoHotwords: questionCaptureHotwords/);
   assert.match(main, /pendingQuestionCaptureHotkey/);
   assert.match(main, /captureId/);
   assert.doesNotMatch(main, /asr:start|asr:repeat|voiceprint/i);
   assert.match(preload, /startQuestionCapture/);
   assert.match(preload, /onQuestionCaptureEvent/);
   assert.match(preload, /markQuestionCaptureRendererReady/);
+  assert.match(preload, /configureQuestionCaptureHotwords/);
   assert.doesNotMatch(preload, /startAsr|startRepeatAsr|onAsrEvent|onRepeatAsrEvent/);
 });

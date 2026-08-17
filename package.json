@@ -7,13 +7,47 @@
   "scripts": {
     "test": "node --test",
     "start": "node server.js",
-    "desktop": "electron ."
+    "desktop": "electron .",
+    "package:mac": "electron-builder --mac dir --arm64"
   },
   "devDependencies": {
-    "electron": "^37.2.1"
+    "electron": "^37.2.1",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "ws": "^8.18.3"
+  },
+  "build": {
+    "appId": "com.local.interview-notes-companion",
+    "productName": "面试资料伴侣",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "!test{,/**}",
+      "!docs{,/**}",
+      "!.github{,/**}",
+      "!.local{,/**}",
+      "!面试知识库-*.md",
+      "!GEO项目梳理-大王版.md",
+      "!旅游场景.md",
+      "!AI产品经理面试问题与知识笔记.md",
+      "!简历 7.0.md",
+      "!interview-knowledge-base.md",
+      "!AI产品经理术语表.md",
+      "!assets/AI产品经理面试完整口述回答Skill.md",
+      "!.worktrees{,/**}",
+      "!release{,/**}",
+      "!*.command",
+      "!*.DS_Store"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dir"
+      ]
+    }
   }
 }

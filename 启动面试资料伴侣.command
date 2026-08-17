@@ -1,6 +1,11 @@
 #!/bin/zsh
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")"
-git pull --ff-only origin main
-INTERVIEW_EDITION=release npm run desktop
+APP_PATH="$PWD/release/mac-arm64/面试资料伴侣.app"
+
+if [[ ! -d "$APP_PATH" ]]; then
+  npm run package:mac
+fi
+
+open "$APP_PATH"

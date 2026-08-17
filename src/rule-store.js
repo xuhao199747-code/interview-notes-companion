@@ -17,5 +17,9 @@ export function createRuleStore(filePath, fallback) {
       await fs.writeFile(filePath, JSON.stringify(saved, null, 2), "utf8");
       return saved;
     },
+    async reset() {
+      await fs.rm(filePath, { force: true });
+      return { ...fallback };
+    },
   };
 }

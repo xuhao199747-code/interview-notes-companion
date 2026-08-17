@@ -54,6 +54,7 @@ test("顶部导航不使用深色底板，并保持紧凑高度", async () => {
   const css = await fs.readFile(new URL("../config.css", import.meta.url), "utf8");
 
   assert.match(css, /\.topbar\s*\{[^}]*height\s*:\s*62px[^}]*background\s*:\s*transparent[^}]*backdrop-filter\s*:\s*none/s);
+  assert.match(css, /\.topbar\s*\{[^}]*background:transparent !important[^}]*border-color:transparent !important[^}]*box-shadow:none !important/s);
 });
 
 test("默认答题视图不再显示页面标题，只保留隐藏的数据计数", async () => {

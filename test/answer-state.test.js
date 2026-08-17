@@ -6,6 +6,8 @@ import {
   buildFollowUpContext,
   createAnswerState,
   isConfirmedQuestion,
+  setQuestionContext,
+  setQuestionDocument,
 } from "../src/answer-state.js";
 
 test("短语音片段不会被当作可替换的问题", () => {
@@ -44,6 +46,21 @@ test("过时 LLM 结果不会覆盖当前问题", () => {
   assert.equal(state.current.llmHtml, "当前答案");
 });
 
+test("新题应先替换旧答案，再异步填入该题的检索资料", () => {
+  const state = createAnswerState();
+  beginQuestion(state, "上一题", "上一题资料");
+  acceptLlmAnswer(state, state.current.requestId, "上一题 LLM 答案");
+
+  const current = beginQuestion(state, "自我介绍一下", "");
+
+  assert.equal(state.current.question, "自我介绍一下");
+  assert.equal(state.current.documentHtml, "");
+  assert.equal(state.current.llmHtml, "");
+  assert.equal(setQuestionDocument(state, current.requestId, "自我介绍资料"), true);
+  assert.equal(setQuestionDocument(state, current.requestId - 1, "旧题晚到资料"), false);
+  assert.equal(state.current.documentHtml, "自我介绍资料");
+});
+
 test("短追问会携带上一题的上下文，并创建新的请求", () => {
   const state = createAnswerState();
   const first = beginQuestion(state, "项目有几个 Agent", "项目共有 3 个 Agent");
@@ -56,14 +73,18 @@ test("短追问会携带上一题的上下文，并创建新的请求", () => {
   assert.equal(acceptLlmAnswer(state, first.requestId, "旧题晚到答案"), false);
 });
 
-test("内部最多只保留紧邻的一条历史题", () => {
+test("项目追问保留最近多题的原始资料上下文", () => {
   const state = createAnswerState();
-  beginQuestion(state, "第一题", "答案一");
-  beginQuestion(state, "第二题", "答案二");
-  beginQuestion(state, "第三题", "答案三");
-  assert.equal(state.current.question, "第三题");
-  assert.equal(state.previous.question, "第二题");
-  assert.equal(Object.hasOwn(state, "history"), false);
+  const first = beginQuestion(state, "请介绍 GEO 项目", "");
+  setQuestionContext(state, first.requestId, "【GEO 项目介绍】\n这是 GEO 品牌增长平台。");
+  const second = beginQuestion(state, "这个项目解决什么问题", "");
+  setQuestionContext(state, second.requestId, "【GEO 项目背景】\n帮助品牌衡量并提升 AI 可见度。");
+
+  const context = buildFollowUpContext([...state.history, state.current]);
+
+  assert.match(context, /请介绍 GEO 项目/);
+  assert.match(context, /GEO 品牌增长平台/);
+  assert.match(context, /帮助品牌衡量并提升 AI 可见度/);
 });
 
 test("回答请求会把上一题上下文发送给 LLM", async () => {

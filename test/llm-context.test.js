@@ -22,7 +22,7 @@ test("超长追问上下文会保留开头并明确截断", () => {
   assert.ok(clipped.endsWith("…"));
 });
 
-test("首读上下文只保留两条最强资料并裁剪每条长度", () => {
+test("首读上下文保留同题所需的三段资料，避免口述原文在最后一段被截断", () => {
   const context = buildFastFirstTokenContext([
     { title: "第一条", content: "甲".repeat(1200) },
     { title: "第二条", content: "乙".repeat(1200) },
@@ -30,8 +30,8 @@ test("首读上下文只保留两条最强资料并裁剪每条长度", () => {
   ]);
   assert.match(context, /第一条/);
   assert.match(context, /第二条/);
-  assert.doesNotMatch(context, /第三条/);
-  assert.ok(context.length < 1900);
+  assert.match(context, /第三条/);
+  assert.ok(context.length > 3000);
 });
 
 test("生成接口使用首读上下文预算且保留流式返回", async () => {

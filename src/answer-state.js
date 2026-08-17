@@ -4,17 +4,27 @@ export function isConfirmedQuestion(question) {
 }
 
 export function createAnswerState() {
-  return { current: null, previous: null, nextRequestId: 0 };
+  return { current: null, previous: null, history: [], nextRequestId: 0 };
 }
 
-export function buildFollowUpContext(previous) {
-  if (!previous) return "";
-  const previousAnswer = previous.llmHtml ? `\n上一题回答：${previous.llmHtml}` : "";
-  return `上一题：${previous.question}\n上一题资料：${previous.documentHtml}${previousAnswer}`;
+export function buildFollowUpContext(turns) {
+  const recentTurns = (Array.isArray(turns) ? turns : [turns])
+    .filter(Boolean)
+    .slice(-3);
+  if (!recentTurns.length) return "";
+  return recentTurns
+    .map((turn, index) => {
+      const source = String(turn.sourceContext || "").trim();
+      return `第 ${index + 1} 个前序问题：${turn.question}${source ? `\n命中的原文：\n${source}` : ""}`;
+    })
+    .join("\n\n");
 }
 
 export function beginQuestion(state, question, documentHtml, context = "") {
-  if (state.current) state.previous = { ...state.current };
+  if (state.current) {
+    state.previous = { ...state.current };
+    state.history = [...(state.history || []), { ...state.current }].slice(-3);
+  }
   const current = {
     question,
     documentHtml,
@@ -31,5 +41,17 @@ export function acceptLlmAnswer(state, requestId, llmHtml, status = "ready") {
   if (!state.current || state.current.requestId !== requestId) return false;
   state.current.llmHtml = llmHtml;
   state.current.llmStatus = status;
+  return true;
+}
+
+export function setQuestionDocument(state, requestId, documentHtml) {
+  if (!state.current || state.current.requestId !== requestId) return false;
+  state.current.documentHtml = documentHtml;
+  return true;
+}
+
+export function setQuestionContext(state, requestId, sourceContext) {
+  if (!state.current || state.current.requestId !== requestId) return false;
+  state.current.sourceContext = String(sourceContext || "");
   return true;
 }

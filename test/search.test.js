@@ -20,6 +20,12 @@ test("解析 Markdown 标题和正文", () => {
   assert.match(sections[1].content, /用户访谈/);
 });
 
+test("飞书来源元数据不作为可检索答案正文", () => {
+  const sections = parseMarkdown("# GEO\n> 来源：https://my.feishu.cn/docx/x\n> 文档 token：x\n> 当前飞书修订：1249\n\n## 项目简介\n解决品牌在 AI 搜索中的可见度问题。", "GEO.md");
+  assert.deepEqual(sections.map((section) => section.title), ["项目简介"]);
+  assert.equal(sections[0].content, "解决品牌在 AI 搜索中的可见度问题。");
+});
+
 test("飞书多栏逐字稿中的每道面试题拆成独立检索段", () => {
   const markdown = `# 项目\n\n<grid>\n<column>\n\`\`\`plaintext\n你 AGENT 的架构是什么？\n主 Agent 负责拆解任务并调度专业 Agent。\n\n你怎么做的 RAG？\n采用混合召回、重排和评测闭环。\n\`\`\`\n</column>\n</grid>`;
   const sections = parseMarkdown(markdown, "飞书原文.md");
@@ -27,6 +33,22 @@ test("飞书多栏逐字稿中的每道面试题拆成独立检索段", () => {
   assert.deepEqual(sections.map((section) => section.title), ["你 AGENT 的架构是什么？", "你怎么做的 RAG？"]);
   assert.match(sections[0].content, /主 Agent/);
   assert.match(sections[1].content, /混合召回/);
+});
+
+test("原始表格在保真展示的同时，仍按行列文本进入本地索引", () => {
+  const markdown = `# GEO 品牌增长平台
+
+## AI能力拆解
+
+| AI能力 | 主要功能 | 输出 |
+| --- | --- | --- |
+| Leader Agent | 理解用户目标，拆解任务 | 任务计划 |
+| Prompt Agent | 生成和优化问题 | Prompt 集 |`;
+  const sections = parseMarkdown(markdown, "GEO.md");
+  const result = searchSections("Leader Agent 的主要功能是什么", sections, 1)[0];
+  assert.equal(result.title, "AI能力拆解");
+  assert.match(result.content, /理解用户目标，拆解任务/);
+  assert.match(result.content, /任务计划/);
 });
 
 test("超长资料章节会拆成可独立检索的段落块，而不是整章作为一个候选", () => {
@@ -65,6 +87,17 @@ test("个人情况类问法应优先命中自我介绍", () => {
     { title: "项目挑战", content: "项目中需要处理复杂的数据问题。" },
   ];
   assert.equal(searchSections("说说你的情况", sections, 1)[0].title, "自我介绍");
+});
+
+test("知识卡别名参与词面召回", () => {
+  const sections = [{
+    title: "检索增强生成方案",
+    project: "AI 产品通用能力",
+    content: "用外部资料增强回答。",
+    aliases: ["RAG 是什么", "RAG 怎么做"],
+    retrievalText: "AI 产品通用能力\n检索增强生成方案\nRAG 是什么\nRAG 怎么做\n用外部资料增强回答。",
+  }];
+  assert.equal(searchSections("RAG 是什么", sections, 1)[0].title, "检索增强生成方案");
 });
 
 test("技术缩写问题优先命中标题明确的技术章节，而不是泛自我介绍", () => {
@@ -154,12 +187,12 @@ test("什么时候转人工优先命中高风险与人工接管规则", () => {
   assert.equal(searchSections("什么时候转人工", sections, 1)[0].title, "高风险场景");
 });
 
-test("未点名项目的通用知识库设计优先引用术语表，而不是借用项目实践", () => {
+test("通用知识库设计不会给术语表额外检索优先级", () => {
   const sections = [
     { title: "RAG 在 GEO 项目里起什么作用", source: "面试知识库-GEO品牌增长平台.md", content: "项目知识库怎么建。" },
     { title: "RAG", source: "AI产品经理术语表.md", content: "通用知识库设计包含切片、Metadata、混合召回和重排。" },
   ];
-  assert.equal(searchSections("知识库如何设计", sections, 1)[0].source, "AI产品经理术语表.md");
+  assert.equal(searchSections("知识库如何设计", sections, 1)[0].source, "面试知识库-GEO品牌增长平台.md");
 });
 
 test("通用 Agent 设计题优先命中 Agent 方法论，而不是泛项目复盘", () => {

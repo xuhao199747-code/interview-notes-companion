@@ -1,6 +1,7 @@
 .provider-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:22px 0 16px; }.provider-grid > div { display:flex; flex-direction:column; }.provider-grid .full-field { grid-column:1/-1; }.provider-grid label { color:var(--muted); font:10px 'DM Mono'; margin-bottom:7px; text-transform:uppercase; }.provider-grid input,.provider-grid select { width:100%; background:#0e1625; border:1px solid #35435b; border-radius:6px; color:var(--text); padding:10px; outline:0; font:12px Manrope; }.provider-grid input:focus,.provider-grid select:focus { border-color:var(--accent); }.settings-divider { height:1px; background:var(--line); margin:28px 0 18px; }.error-dot { background:#ff8c8c; box-shadow:0 0 12px #ff8c8c; }
 .listening-settings-copy { max-width:760px; }.listening-config-grid { margin-bottom:8px; }.listening-config-card { min-height:126px; padding:15px; border:1px solid #2c3950; border-radius:8px; background:rgba(21,30,48,.72); }.listening-config-card label + label { margin-top:13px; }.listening-config-card small { margin-top:10px; color:var(--muted); font-size:11px; line-height:1.6; }.listening-config-card input[readonly] { cursor:default; }.field-label { color:var(--muted); font:10px 'DM Mono'; margin-bottom:11px; text-transform:uppercase; }.toggle-row { display:flex; align-items:center; gap:9px; color:var(--text); font-size:12px; cursor:pointer; }.toggle-row input { width:15px; height:15px; accent-color:var(--accent); padding:0; }
 .settings-guide { margin-top:24px; padding:15px 17px; border:1px solid #2c3950; border-radius:8px; background:rgba(21,30,48,.72); color:var(--muted); font-size:11px; line-height:1.8; }.settings-guide strong { color:var(--text); font-size:12px; }.settings-guide ol { margin:10px 0 0; padding-left:18px; }.settings-guide li { margin:4px 0; }
+#converterSkillTabs { display:contents; }
 .config-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .rules-preview { grid-column:1 / -1; margin:0; padding:16px; border:1px solid var(--line); border-radius:8px; background:#101827; color:var(--muted); font:12px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap; max-height:360px; overflow:auto; }.rules-preview summary { color:var(--text); cursor:pointer; font:600 12px Manrope; margin-bottom:12px; }.rules-preview pre { white-space:pre-wrap; margin:0; font:inherit; }
 .knowledge-readonly { display:flex; align-items:center; gap:10px; min-height:250px; justify-content:center; flex-direction:column; color:var(--muted); }.knowledge-readonly .status-dot { margin-bottom:4px; }.knowledge-readonly strong { color:var(--text); font-size:14px; }.knowledge-readonly .secondary-button { margin-top:8px; }
@@ -28,7 +29,7 @@ body { height:100vh; overflow:hidden; }
 .manual-question-button { flex-shrink:0; border:1px solid #43536f; background:transparent; color:var(--text); border-radius:7px; padding:8px 10px; cursor:pointer; font:11px Manrope; white-space:nowrap; }
 .manual-question-button:hover { border-color:var(--accent); color:var(--accent); }
 .repeat-question-button { flex-shrink:0; border:1px solid #43536f; background:transparent; color:var(--text); border-radius:7px; padding:8px 10px; cursor:pointer; font:11px Manrope; white-space:nowrap; }
-.repeat-question-button:hover,.repeat-question-button.active { border-color:var(--accent); color:var(--accent); background:rgba(185,243,106,.08); }
+.repeat-question-button:hover,.repeat-question-button.active { border-color:var(--accent); color:var(--accent); background:var(--ui-accent-soft); }
 .question-toolbar .tips { display:none; }
 
 .manual-question-modal { position:fixed; inset:0; z-index:40; display:grid; place-items:center; padding:20px; background:rgba(3,7,14,.55); }
@@ -82,7 +83,7 @@ body { height:100vh; overflow:hidden; }
 .answer-source .source-heading .section-kicker { flex:none; }
 
 /* 上一题只在需要时作为浮层出现，不再挤占当前回答的高度。 */
-.previous-answer-fab { position:fixed; right:24px; bottom:24px; z-index:25; width:44px; height:44px; border:1px solid rgba(181,255,93,.76); border-radius:50%; background:#172334; color:var(--accent); box-shadow:0 10px 28px rgba(0,0,0,.35); font:24px/1 Manrope; cursor:pointer; transition:transform .16s ease, background .16s ease; }
+.previous-answer-fab { position:fixed; right:24px; bottom:24px; z-index:25; width:44px; height:44px; border:1px solid rgba(167,139,250,.76); border-radius:50%; background:var(--ui-control); color:var(--accent); box-shadow:0 10px 28px rgba(0,0,0,.35); font:24px/1 Manrope; cursor:pointer; transition:transform .16s ease, background .16s ease; }
 .previous-answer-fab:hover { transform:translateY(-2px); background:#203228; }
 .previous-answer-fab.hidden { display:none; }
 .previous-answer { display:none; position:fixed; inset:0; z-index:30; margin:0; max-height:none; overflow:auto; padding:56px max(24px,calc((100vw - 1240px) / 2)); background:rgba(3,7,14,.68); }
@@ -166,14 +167,14 @@ body.overlay-mode { background:transparent; }
 body.overlay-mode .app-shell,body.overlay-mode .workspace,body.overlay-mode .question-workspace { background:transparent; }
 body.overlay-mode .topbar { display:none; }
 body.overlay-mode .workspace { height:100vh; padding:0; }
-#answerOverlay { --overlay-surface:rgba(21,30,48,.72); --overlay-line:rgba(105,124,157,.48); position:fixed; top:12px; left:50%; z-index:41; width:min(1060px,calc(100vw - 32px)); transform:translateX(-50%); background:transparent; padding:0; }
+#answerOverlay { --overlay-surface:rgba(21,30,48,.72); --overlay-line:rgba(105,124,157,.48); position:fixed; top:12px; left:50%; z-index:41; width:min(1060px,calc(100vw - 32px)); transform:translateX(-50%); background:transparent; border-radius:var(--radius-panel); padding:0; }
 .answer-overlay-backdrop { position:fixed; inset:0; z-index:40; background:transparent; }
 #answerOverlay .question-toolbar { display:block; padding:0; border:1px solid var(--overlay-line); border-radius:12px; background:var(--overlay-surface); backdrop-filter:blur(16px); }
 #answerOverlay .live-panel { width:100%; max-width:none; padding:0; border:0; background:transparent; }
 #answerOverlay .listening-row { min-height:52px; gap:6px; padding:6px; }
 #answerOverlay .transcript-card { min-height:40px; border:0; border-radius:8px; background:transparent; padding:5px 10px; }
 .repeat-question-button,.overlay-action { flex:none; min-height:40px; border:1px solid var(--overlay-line); border-radius:8px; background:rgba(12,19,33,.82); color:#d7deeb; padding:0 12px; cursor:pointer; font:600 12px Manrope; white-space:nowrap; transition:border-color .16s ease,background .16s ease,color .16s ease; }
-.repeat-question-button:hover,.repeat-question-button.active,.overlay-action:hover:not(:disabled) { border-color:rgba(181,255,93,.66); background:rgba(181,255,93,.10); color:var(--accent); }
+.repeat-question-button:hover,.repeat-question-button.active,.overlay-action:hover:not(:disabled) { border-color:rgba(167,139,250,.66); background:var(--ui-accent-soft); color:var(--accent); }
 .overlay-action:disabled { opacity:.42; cursor:default; }
 .overlay-action.icon { width:40px; padding:0; font-size:16px; }
 #answerOverlayBody { display:grid; height:0; min-height:0; overflow:hidden; opacity:0; pointer-events:none; transform:translateY(-8px); transition:height .18s ease,opacity .14s ease,transform .18s ease; }
@@ -190,6 +191,15 @@ body.overlay-mode .workspace { height:100vh; padding:0; }
 #answerOverlay.expanded .result-meta { color:#8e9bb0; font:11px Manrope; }
 #answerOverlay:not(.expanded) { background:transparent; border:0; padding:0; }
 #answerOverlay:not(.expanded) .transcript-card { cursor:pointer; }
+
+/* Collapsed mode is a compact 52px toolbar, with equal top and bottom inset. */
+body.overlay-mode:not(:has(#answerOverlay.expanded)) .question-workspace { height:52px; overflow:hidden; background:transparent; }
+#answerOverlay:not(.expanded) { height:52px; overflow:hidden; box-shadow:none; }
+#answerOverlay:not(.expanded) .question-toolbar { height:52px; min-height:52px; margin:0; box-sizing:border-box; }
+#answerOverlay:not(.expanded) .live-panel { height:100%; min-height:0; box-shadow:none; border-radius:0; }
+#answerOverlay:not(.expanded) .listening-row { height:100%; min-height:0; box-sizing:border-box; padding:5px 6px; }
+#answerOverlay:not(.expanded) .transcript-card { min-height:0; height:40px; padding:0 10px; }
+#answerOverlay:not(.expanded) .repeat-question-button,#answerOverlay:not(.expanded) .overlay-action { min-height:40px; height:40px; }
 
 @media (max-width:700px) {
   #answerOverlay { top:8px; width:calc(100vw - 16px); padding:6px; }
@@ -227,25 +237,106 @@ body.overlay-mode .workspace { height:100vh; padding:0; }
 /* Keep the compact recorder legible over a translucent desktop. */
 #answerOverlay .waveform { opacity:.88; }
 #answerOverlay .transcript-placeholder { color:#d8d8d8; }
+#answerOverlay .transcript-card .waveform,#answerOverlay .transcript-card .transcript-placeholder { pointer-events:none; }
+#answerOverlay .waveform.is-listening { opacity:1; }
+#answerOverlay .waveform.is-listening i { animation:overlay-wave-pulse .72s ease-in-out infinite alternate; transform-origin:center; }
+#answerOverlay .waveform.is-listening i:nth-child(2n) { animation-delay:-.16s; }
+#answerOverlay .waveform.is-listening i:nth-child(3n) { animation-delay:-.34s; }
+#answerOverlay .waveform.is-listening i:nth-child(5n) { animation-delay:-.5s; }
+@keyframes overlay-wave-pulse { from { transform:scaleY(.45); opacity:.72; } to { transform:scaleY(1.15); opacity:1; } }
+@media (prefers-reduced-motion:reduce) { #answerOverlay .waveform.is-listening i { animation:none; } }
 #answerOverlay .overlay-action.icon { width:40px; height:40px; display:grid; place-items:center; padding:0; line-height:1; }
 #answerOverlay .overlay-action.icon svg { width:18px; height:18px; stroke-width:2; }
 
 /* Readability hierarchy over meeting content. */
 #answerOverlay { --overlay-surface:rgba(43,45,49,.88); }
-#answerOverlay .question-toolbar { backdrop-filter:blur(24px); }
+#answerOverlay .question-toolbar { backdrop-filter:blur(30px); }
 #answerOverlay.expanded #answerOverlayBody { background:rgba(43,45,49,.88); backdrop-filter:blur(24px); }
 #answerOverlay.expanded .source-heading h3 { color:#fff; }
 #answerOverlay.expanded .result-card h3 { color:#f6f6f6; }
 #answerOverlay.expanded .result-card p,#answerOverlay.expanded .document-excerpt,#answerOverlay.expanded .ai-result .answer-body { color:#d8d8d8; }
 #answerOverlay.expanded .result-meta { color:#b6b6b6; }
 
-/* The frameless window is exactly the visible overlay; drag the toolbar itself. */
-#answerOverlay { top:0; left:0; width:100%; transform:none; }
+/* The transparent window is wider only for placement; the visible toolbar stays compact. */
+#answerOverlay { top:0; left:50%; width:min(760px,calc(100vw - 32px)); transform:translateX(-50%); }
 #answerOverlay:not(.expanded) #answerOverlayBody { display:none !important; }
 #answerOverlay .question-toolbar { user-select:none; -webkit-user-select:none; }
+#answerOverlay,#answerOverlay * { user-select:none !important; -webkit-user-select:none !important; }
 #answerOverlay .listening-row { display:grid; grid-template-columns:minmax(180px,1fr) 124px 72px 40px 40px 40px; align-items:center; width:100%; min-width:0; overflow:hidden; }
 #answerOverlay .transcript-card { min-width:0; width:100%; cursor:grab; }
 #answerOverlay .transcript-card:active { cursor:grabbing; }
 #answerOverlay .repeat-question-button { width:124px; padding:0; }
 #answerOverlay .overlay-action:not(.icon) { width:72px; padding:0; }
-#answerOverlay.expanded #answerOverlayBody { height:calc(100vh - 64px); }
+#answerOverlay.expanded #answerOverlayBody { height:calc(100vh - 52px); }
+
+/* Cursor UI normalization for the retained settings, cards, and dialogs. */
+.topbar { background:transparent !important; border-color:transparent !important; box-shadow:none !important; }
+.settings-sticky-header { background:var(--ui-surface); border-color:var(--ui-border); }
+.settings-close { width:32px; height:32px; display:flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--ui-border); border-radius:6px; background:transparent; color:var(--ui-muted); cursor:pointer; -webkit-app-region:no-drag; }
+.settings-close:hover { border-color:var(--ui-accent); color:#c4b5fd; background:var(--ui-accent-soft); }
+.settings-close svg { width:16px; height:16px; }
+.module-view#settingsView { background:transparent; border:0; border-radius:0; box-shadow:none; }
+#settingsView .settings-sticky-header { padding:16px 16px 0; }
+#settingsView .settings-scroll-content { padding:0 16px 16px; }
+#asrProvider { width:min(100%,520px); }
+#questionCaptureHotkey { background:var(--ui-control); border:1px solid var(--ui-border); color:var(--ui-text); border-radius:6px; }
+.module-view,.panel,.manual-question-card,.previous-answer-modal-card { background:var(--ui-surface); border-color:var(--ui-border); border-radius:var(--radius-panel); box-shadow:0 18px 48px rgba(0,0,0,.28); }
+.knowledge-card,.template-editor,.template-preview,.term-item,.listening-config-card,.settings-guide,.speaker-live { background:var(--ui-surface-raised); border-color:var(--ui-border); border-radius:var(--radius-card); }
+.primary-button { background:var(--ui-accent); border-color:var(--ui-accent); color:#1e1f22; border-radius:var(--radius-control); }
+.primary-button:hover { background:#c4b5fd; }
+.secondary-button,.manual-question-button,.repeat-question-button,.overlay-action { background:var(--ui-control); border-color:var(--ui-border); color:var(--ui-text); border-radius:var(--radius-control); }
+.secondary-button:hover,.manual-question-button:hover,.repeat-question-button:hover,.overlay-action:hover:not(:disabled) { color:#ddd6fe; border-color:var(--ui-accent); background:var(--ui-accent-soft); }
+#answerOverlay .repeat-question-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; background:var(--ui-accent); border-color:var(--ui-accent); color:#1e1f22; font-weight:800; }
+#answerOverlay .repeat-question-button svg { width:16px; height:16px; stroke-width:2.25; }
+#answerOverlay .repeat-question-button:hover,#answerOverlay .repeat-question-button.active { background:#c4b5fd; border-color:#c4b5fd; color:#1e1f22; }
+#answerOverlay #voiceRepeatButton { background:rgba(255,255,255,.06) !important; border-color:rgba(255,255,255,.16) !important; color:#f0f0f0 !important; }
+#answerOverlay #voiceRepeatButton:hover { background:rgba(255,255,255,.11) !important; border-color:rgba(255,255,255,.26) !important; color:#fff !important; }
+#answerOverlay #voiceRepeatButton.active { background:#b9a5ff !important; border-color:#b9a5ff !important; color:#1e1f22 !important; box-shadow:0 1px 0 rgba(255,255,255,.24) inset; }
+#answerOverlay .overlay-action { background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.16); color:#f0f0f0; }
+#answerOverlay .overlay-action:hover:not(:disabled) { background:rgba(255,255,255,.11); border-color:rgba(255,255,255,.26); color:#fff; }
+#alwaysOnTopButton.active,#alwaysOnTopButton.active:hover { border-color:var(--ui-accent); background:var(--ui-accent-soft); color:#ddd6fe; }
+.nav-button.active,.nav-button:hover,.settings-tab.active,.settings-tab:hover { color:#c4b5fd; background:var(--ui-accent-soft); border-color:var(--ui-accent); }
+.template-editor input,.template-editor textarea,.term-editor input,.term-editor select,.provider-grid select,.provider-grid input,.upload-controls select,.manual-question-card input { background:var(--ui-control); border-color:var(--ui-border); border-radius:6px; }
+.settings-warning { background:rgba(215,186,125,.12); border-color:rgba(215,186,125,.38); color:#e6cf9b; }
+
+/* Remove the redundant outer shell around the settings workspace. */
+#settingsView { background:transparent; border:0; border-radius:0; box-shadow:none; }
+#settingsView .settings-sticky-header { background:transparent; }
+
+/* The rule viewer is a compact disclosure, not a second oversized blue panel. */
+.rules-preview { padding:0; background:var(--ui-surface-raised); border-color:var(--ui-border); color:var(--ui-muted); max-height:none; overflow:visible; }
+.rules-preview summary { min-height:44px; display:flex; align-items:center; padding:0 16px; margin:0; color:var(--ui-text); font:600 13px Manrope; }
+.rules-preview[open] summary { border-bottom:1px solid var(--ui-border); }
+.rules-preview pre { max-height:360px; overflow:auto; padding:14px 16px; color:var(--ui-muted); }
+
+/* Settings is one quiet surface: its selected top navigation uses color only. */
+.nav-button.active { color:#c4b5fd; background:transparent; border-color:transparent; }
+
+/* Settings tabs share the same quiet, underline-only selection treatment. */
+.settings-tab.active,.settings-tab:hover { color:#c4b5fd; background:transparent; border-color:transparent; border-bottom-color:var(--ui-accent); }
+
+/* One uploaded setting file is a full-width item, just like the configuration forms. */
+/* All setting file cards use the same compact width. */
+.knowledge-grid { grid-template-columns:repeat(auto-fill,minmax(0,340px)); justify-content:start; }
+
+/* The frameless settings window can be moved from any unused top-bar space. */
+body:not(.overlay-mode) .topbar { -webkit-app-region:drag; }
+body:not(.overlay-mode) .topbar button { -webkit-app-region:no-drag; }
+
+/* The Lucide viewBox is centered independently of the button's text baseline. */
+#answerOverlay .overlay-action.icon { width:40px; height:40px; display:flex !important; align-items:center; justify-content:center; padding:0; line-height:0; }
+#answerOverlay .overlay-action.icon svg { display:block; width:18px; height:18px; margin:0; flex:none; }
+
+/* Final desktop layout contract: settings and question surfaces share one compact rhythm. */
+:root { --desktop-gutter:16px; --desktop-gap:10px; --desktop-panel-padding:12px; }
+.app-shell { padding-inline:var(--desktop-gutter); }
+.workspace { padding-block:var(--desktop-gap); }
+.question-workspace,.answer-source-grid { gap:var(--desktop-gap); }
+.answer-source { padding:var(--desktop-panel-padding); }
+#settingsView .settings-sticky-header { padding:16px var(--desktop-gutter) 0; }
+#settingsView .settings-scroll-content { padding:0 var(--desktop-gutter) var(--desktop-gutter); }
+.topbar { background:transparent !important; border-color:transparent !important; box-shadow:none !important; }
+
+/* Shared component contract: only result bodies scroll, never the whole answer page. */
+#documentResults { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+#llmResults { flex:1; min-height:0; overflow:hidden; }

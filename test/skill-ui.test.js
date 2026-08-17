@@ -17,6 +17,6 @@ test("回答 Skill 用卡片展示当前应用状态和管理操作", async () =
   assert.match(app, /function renderSkillCards\(\)/);
   assert.match(app, /skillCardList/);
   assert.match(app, /当前应用中/);
-  assert.match(skillRenderer, /class="delete-doc large"/);
+  assert.match(skillRenderer, /class="secondary-button delete-doc large"/);
   assert.doesNotMatch(skillRenderer, /edit-doc/);
 });

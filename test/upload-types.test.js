@@ -22,7 +22,7 @@ test("资料管理不再要求用户选择资料类型", async () => {
 test("每张已上传资料卡片可下载原始 Markdown 或 Go 文件", async () => {
   const app = await fs.readFile(new URL("../app.js", import.meta.url), "utf8");
   const documentRenderer = app.slice(app.indexOf("function renderDocuments"), app.indexOf("function renderSkillCards"));
-  assert.match(documentRenderer, /class="download-doc large"/);
+  assert.match(documentRenderer, /class="secondary-button download-doc large"/);
   assert.match(documentRenderer, /data-doc="\$\{escapeHtml\(doc\.name\)\}"/);
   assert.match(app, /function downloadDocument\(name\)/);
   assert.match(app, /closest\("\.download-doc"\)/);

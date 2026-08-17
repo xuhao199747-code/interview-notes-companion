@@ -14,5 +14,5 @@ export function buildLlmContext(matches = [], { maxItems = 4, maxItemChars = 220
 
 // 首字速度优先：保留检索排序，只缩小发送给模型的首轮资料体积。
 export function buildFastFirstTokenContext(matches = []) {
-  return buildLlmContext(matches, { maxItems: 2, maxItemChars: 900 });
+  return buildLlmContext(matches, { maxItems: 3, maxItemChars: 1400 });
 }

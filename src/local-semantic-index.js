@@ -5,7 +5,8 @@ import { pipeline, env } from "@huggingface/transformers";
 import { cosineSimilarity } from "./semantic-search.js";
 
 const MODEL_NAME = "semantic-model";
-const INDEX_VERSION = 2;
+// 知识卡把别名也写入了向量文本；旧缓存没有这些别名，必须自动重建一次。
+const INDEX_VERSION = 3;
 const EMBEDDING_BATCH_SIZE = 12;
 
 function keyFor(section = {}) {
@@ -14,11 +15,12 @@ function keyFor(section = {}) {
     section.project || "",
     section.title || "",
     section.content || "",
+    section.retrievalText || "",
   ])).digest("hex");
 }
 
 function sectionText(section = {}) {
-  return `${section.project || ""}\n${section.title || ""}\n${section.content || ""}`.slice(0, 4000);
+  return String(section.retrievalText || `${section.project || ""}\n${section.title || ""}\n${section.content || ""}`).slice(0, 4000);
 }
 
 function toVector(tensor) {

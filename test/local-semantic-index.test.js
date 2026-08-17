@@ -39,6 +39,16 @@ test("同一章节不会重复生成向量", async () => {
   assert.equal(calls, 1);
 });
 
+test("知识卡检索文本变化后会自动重建该条向量", async () => {
+  let calls = 0;
+  const index = createLocalSemanticIndex({ embed: (text) => { calls += 1; return fakeEmbed(text); } });
+  const original = { source: "资料.md", title: "检索方案", content: "向量检索", retrievalText: "检索方案" };
+  const enriched = { ...original, retrievalText: "检索方案\\nRAG 是什么\\nRAG 怎么做" };
+  await index.index([original]);
+  await index.index([enriched]);
+  assert.equal(calls, 2);
+});
+
 test("并发的预建索引与提问检索不会重复计算同一章节", async () => {
   let calls = 0;
   const index = createLocalSemanticIndex({ embed: (text) => { calls += 1; return fakeEmbed(text); } });

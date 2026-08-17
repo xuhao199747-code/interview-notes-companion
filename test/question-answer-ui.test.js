@@ -12,7 +12,7 @@ test("面试页保留文档库和 LLM 两列回答", async () => {
   assert.doesNotMatch(html, /DOCUMENT LIBRARY|LLM GENERATED/);
 });
 
-test("文档库参考将 Markdown 强调语法渲染为易读文本", async () => {
+test("文档库参考直接展示已清洗资料的 Markdown 强调语法", async () => {
   const app = await fs.readFile(new URL("../app.js", import.meta.url), "utf8");
 
   assert.match(app, /function formatDocumentExcerpt\(content\)/);

@@ -16,6 +16,17 @@ test("技术词的直接命中优先于语义上泛相关的资料", () => {
   assert.equal(candidates[0].matchType, "hybrid");
 });
 
+test("表格行被解析为小节后，题目点名的能力名优先于语义相近的架构段", () => {
+  const sections = [
+    { title: "Main Agent（主智能体）", project: "GEO", content: "负责读取任务状态并选择执行路径。" },
+    { title: "Leader Agent", project: "GEO", content: "主要功能：理解用户目标，拆解任务并调度专业智能体。" },
+  ];
+  const candidates = mergeHybridCandidates("Leader Agent 的主要功能是什么", sections, [
+    { ...sections[0], score: 30, semanticScore: 0.96, matchType: "semantic" },
+  ]);
+  assert.equal(candidates[0].title, "Leader Agent");
+});
+
 test("只有语义候选时仍可保留给严格回答路由二次判断", () => {
   const section = { title: "项目难点", project: "GEO", content: "跨平台回答波动需要评测。" };
   const candidates = mergeHybridCandidates("我遭遇的阻碍", [section], [{ ...section, score: 6, semanticScore: 0.6, matchType: "semantic" }]);
@@ -45,4 +56,16 @@ test("已有明确词面候选时，不让语义模型单独召回的无关大�
 
   assert.equal(candidates[0].title, "RAG 怎么做");
   assert.equal(candidates.some((item) => item.title === "3.3 功能规则表"), false);
+});
+
+test("弱词面命中存在时，仍保留同项目的高语义候选供后续重排", () => {
+  const sections = [
+    { title: "知识库介绍", project: "通用资料", content: "项目包含多个 AI 能力。" },
+    { title: "资料召回方案", project: "通用资料", content: "采用混合召回、重排和评测。" },
+  ];
+  const candidates = mergeHybridCandidates("知识库如何设计", sections, [
+    { ...sections[1], semanticScore: 0.94, matchType: "semantic" },
+  ]);
+
+  assert.ok(candidates.some((item) => item.title === "资料召回方案"));
 });

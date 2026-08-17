@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { gunzipSync } from "node:zlib";
 import { createDoubaoRequest, decodeDoubaoResponse, DoubaoAsrSession, encodeDoubaoAudioFrame } from "../src/doubao-asr.js";
 
 const config = {
@@ -17,6 +18,20 @@ test("豆包请求把 Access Token 放在请求头而不放进 URL", () => {
   assert.equal(request.url.includes("access-token"), false);
   assert.equal(request.firstFrame[0], 0x11);
   assert.equal(request.firstFrame[1], 0x10);
+});
+
+test("豆包请求把术语表作为热词上下文，并开启最终二遍识别", () => {
+  const request = createDoubaoRequest({
+    ...config,
+    doubaoHotwords: ["GEO", "Qoder", "Work Buddy", "Claude Code"]
+  }, "connection-id");
+  const payloadSize = request.firstFrame.readUInt32BE(4);
+  const payload = JSON.parse(gunzipSync(request.firstFrame.subarray(8, 8 + payloadSize)).toString("utf8"));
+
+  assert.equal(payload.request.enable_nonstream, true);
+  assert.deepEqual(JSON.parse(payload.request.corpus.context), {
+    hotwords: [{ word: "GEO" }, { word: "Qoder" }, { word: "Work Buddy" }, { word: "Claude Code" }]
+  });
 });
 
 test("豆包音频包使用 binary audio-only 结尾标记", () => {

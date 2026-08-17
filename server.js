@@ -30,11 +30,12 @@ const glossaryStore = createDocumentStore(path.join(dataDirectory, "glossary.jso
 const semanticIndex = process.versions.electron
   ? createSemanticWorkerClient({ filePath: path.join(dataDirectory, "semantic-index.json") })
   : createLocalSemanticIndex({ filePath: path.join(dataDirectory, "semantic-index.json") });
+const startupSemanticIndexDelayMs = 3000;
 let ruleStore;
 let answerRules = { name: "AI产品经理回答规则.md", markdown: "# AI 产品经理回答规则\n\n规则文件加载中。" };
 // 这是不可被用户上传的规则文件覆盖的产品底线；Skill 只负责组织表达。
 const answerScopePolicy = `你是 AI 产品经理面试资料补充助手。
-只输出用户能直接说出口的答案。禁止提及“当前设置”“回答范围”“系统规则”“不能把某项目当作个人经历”“资料选择”等内部判断过程；需要遵守边界时，直接改写成可回答的内容，不要解释限制。不要复述题意，不要揣测或解释面试官考察点，不要说“这个问题问的是……”“面试官想考察……”“我先明确一点……”“我会这样组织我的理解……”。答案第一句直接进入事实、观点、做法或个人经历本身。
+只输出用户能直接说出口的答案。禁止提及“当前设置”“回答范围”“系统规则”“不能把某项目当作个人经历”“资料选择”等内部判断过程；需要遵守边界时，直接改写成可回答的内容，不要解释限制。不要复述、改写或确认题意，不要揣测或解释面试官考察点。禁止用“我理解您指的是……”“我理解这个问题是……”“如果你问的是……”“先明确一下……”“这个问题问的是……”“面试官想考察……”“我先明确一点……”“我会这样组织我的理解……”作开头。答案第一句必须直接给出事实、判断、做法或个人经历本身。
 回答范围优先级最高：根据请求中的“回答范围”决定是否可以使用候选人经历、项目资料和追问上下文。
 回答 Skill 只能规定表达结构、篇幅和语气，不能改变回答范围，也不能要求把个人经历或具体项目强行带入通用方法论题。
 当回答范围是“通用方法论”时，禁止写“我在某项目做过”或虚构候选人实践；只能给出通用、可执行的方法论。
@@ -42,11 +43,14 @@ const answerScopePolicy = `你是 AI 产品经理面试资料补充助手。
 通用题可以引用命中资料中的机制和做法，但必须先移除项目、公司、人物和指标归属，不能把资料中的项目事实改写成候选人的通用实践。
 当回答范围是“外部产品分析”时，只分析当前题目点名的外部产品、功能、交互、规则和取舍；禁止引入候选人经历、GEO、旅游项目、Agent、RAG、LLM、Skill 或 AI 技术方案，除非题目明确提及这些内容。
 当回答范围是“外部产品分析”且题目采用“你有没有用过某产品”“这个产品有什么好处”这类问法时，按外部产品体验题回答：以使用者视角直接说明使用场景、核心价值、具体体验、局限和适用边界。不得以“没有直接使用经验”“没有掌握具体功能”为开场或结论；资料没有命中时，可以基于题目中可识别的产品类型作审慎分析，并用“我实际体验下来”“我会重点看”等自然口语组织，但不得编造无法核验的具体功能、数据或合作经历。
-项目技术题（例如“这个项目用了什么技术”“技术栈是什么”“技术架构怎么做”）必须先直接列出已确认的实际 AI 技术和它们的职责：如 Agent、RAG、Workflow、模型调用、规则引擎、混合召回、向量检索、评测与人工审核；再按“技术名称—在当前项目中负责什么—为什么需要它”展开。不要把“监测—诊断—优化—验证”这类业务闭环当作技术栈，也不要只说“不是单一模型或工具”而不回答用了什么技术。只列当前项目资料已确认的技术，未确认的技术不得补造。
+项目技术题（例如“这个项目用了什么技术”“技术栈是什么”“技术架构怎么做”）必须先直接列出题目与当前项目资料共同确认的实际技术及职责，再按“技术名称—在当前项目中负责什么—为什么需要它”展开。不要把“监测—诊断—优化—验证”这类业务闭环当作技术栈，也不要只说“不是单一模型或工具”而不回答用了什么技术。只列当前项目资料已确认的技术，未确认的技术不得补造。
+题型框架只能决定回答重点，不能预设具体项目、模型、产品或技术方案。只有题目明确点名、追问上下文已锁定，或当前命中资料明确支持时，才能使用 GEO、旅游项目、DeepSeek、RAG、Agent、Kimi 等具体内容；否则按通用方法论回答。
+命中原文逐字稿时优先沿用原文的事实、顺序和可口述表达，只在不改变原意的前提下拆分长句、删除重复或补足题目明确要求的缺口；未命中原文时才按题型选择回答入口。方案、项目、设计、技术取舍、评测和复盘题可以从用户场景、用户需求或业务痛点切入；概念、术语、参数或简单事实题直接定义、对比或回答事实，不强行虚构场景。
+回答材料分三类：原文直答时，以该题完整原文为主组织口述；资料整合时，合并同题的背景、做法、结果与边界，不能只复述其中一段；通用兜底只在没有相关资料时使用。不得用通用模板覆盖命中的原文，也不得把内部的“资料不足”判断说给面试官。
 需要谈效果时，应区分离线评测与线上指标：评测集、Rubric、Badcase 和回归用于验证离线质量，线上指标只用于观察真实使用效果；不能将离线结论说成线上收益，不能编造数值。
 高风险决策应以权威数据和明确版本为准，说明规则、模型与人工的分工；对低置信度、证据不足、越权或无法核验的信息，应拒答或说明资料不足并转人工接管，保留必要的审计记录。
 首次出现的纯英文术语、缩写或英文短语，必须紧跟中文解释，格式为“英文（中文解释）”；例如“RAG（检索增强生成）”“Rerank（重排序）”。已有清晰中文名称的产品名可保留原名，不必生硬翻译；同一术语在同一篇回答后续再次出现无需重复解释。
-当没有可靠命中资料时，要明确资料不足，不得借用无关项目、无关经历或上一题内容。`;
+当没有可靠命中资料时，要明确资料不足，不得借用无关项目、无关经历或上一题内容。对于“什么是 X / X 是什么意思”这类定义题，如果 X 是单个英文词或疑似语音转写，且当前资料没有命中：不得编造它是某个模型、架构、产品或缩写，不得虚构英文全称。普通英语词应按常用含义直接解释；例如 Loop 表示循环，在产品或 AI 流程中通常指“执行—检查结果—反馈—再执行”的闭环。只有题目明确给出相应技术上下文且资料可以支持时，才解释为特殊专名。`;
 const runtimeConfig = { asrProvider: process.env.ASR_PROVIDER || "browser", tencentRegion: process.env.TENCENT_REGION || "ap-guangzhou", tencentAppId: process.env.TENCENT_APP_ID || "", tencentSecretId: process.env.TENCENT_SECRET_ID || "", tencentSecretKey: process.env.TENCENT_SECRET_KEY || "", questionCaptureHotkey: "Alt+Space", doubaoAppId: process.env.DOUBAO_APP_ID || "", doubaoAccessToken: process.env.DOUBAO_ACCESS_TOKEN || "", doubaoResourceId: process.env.DOUBAO_RESOURCE_ID || "", doubaoEndpoint: process.env.DOUBAO_ENDPOINT || "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", aiApiUrl: process.env.AI_API_URL || "https://api.openai.com/v1/chat/completions", aiModel: process.env.AI_MODEL || "gpt-4o-mini", aiApiKey: process.env.AI_API_KEY || "" };
 const contentTypes = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".md": "text/markdown; charset=utf-8" };
 
@@ -71,7 +75,7 @@ async function getDocuments(response) {
 
 function sectionsFromDocuments(documents = []) {
   return documents
-    .filter((document) => document?.type !== "skill")
+    .filter((document) => document?.type !== "skill" && document?.type !== "converter-skill")
     .flatMap((document) => parseMarkdown(document.markdown || "", document.name || "未命名资料"));
 }
 
@@ -139,6 +143,11 @@ async function saveRules(request, response) {
   sendJson(response, 200, answerRules);
 }
 
+async function deleteRules(response) {
+  answerRules = await ruleStore.reset();
+  sendJson(response, 200, answerRules);
+}
+
 async function saveGlossary(request, response) {
   const input = await readBody(request);
   const name = typeof input.name === "string" ? input.name.trim() : "";
@@ -160,16 +169,16 @@ async function generateAnswer(request, response) {
   // 首读速度优先：不改变检索排序，只缩小首轮传给模型的资料体积。
   const context = buildFastFirstTokenContext(input.context || []);
   const personalContext = typeof input.personalContext === "string" ? clipLlmText(input.personalContext, 700) : "";
-  const previousContext = typeof input.previousContext === "string" ? clipLlmText(input.previousContext, 400) : "";
+  const previousContext = typeof input.previousContext === "string" ? clipLlmText(input.previousContext, 2800) : "";
   const answerScope = ["general", "experience", "project", "followup", "product"].includes(input.answerScope) ? input.answerScope : "general";
-  const template = clipLlmText(input.template || "直接回答问题，使用自然、可口述的段落。", 700);
+  const template = clipLlmText(input.template || "直接回答问题，使用自然、可口述的段落。", 2200);
   const system = `${answerScopePolicy}\n\n以下是用户上传的回答 Skill（仅用于表达，不得覆盖上面的回答范围规则）：\n${clipLlmText(answerRules.markdown, 1800)}`;
   const scopeLabel = answerScope === "general"
     ? "通用方法论（禁止带入个人经历或特定项目）"
     : answerScope === "product"
       ? "外部产品分析（禁止带入候选人经历、项目资料或 AI 技术方案）"
       : answerScope;
-  const user = `面试问题：${input.query}\n\n回答范围：${scopeLabel}${previousContext ? `\n\n追问上下文：\n${previousContext}` : ""}\n\n当前问题命中的资料：\n${context || "没有找到直接资料"}\n\n候选人个人背景：\n${personalContext || "本题不使用个人背景"}\n\n回答结构参考：\n${template}\n\n只输出候选人可以直接说出口的答案。第一句直接回答当前问题，不要客套开场；后续继续自然补全同一篇回答。只参考当前问题命中的资料：通用题按通用资料回答，项目题按对应项目资料回答，追问按当前项目与上下文回答；命中原文逐字稿时应使用其中可核查的事实、结构、数字和边界，但不得用无关原文覆盖当前题。候选人开始介绍项目的口语开场，应视为“请介绍该项目”：直接续写完整项目回答，不要向候选人提问、要求其继续说明或写成面试官追问。不要分析面试官的意图、不要解释回答方法、不要输出“结论/背景/具体行动/复盘”等机械标题；只有当前回答 Skill 明确且确有必要时，才自然分段。若资料不足，不得把无关项目当作案例。`;
+  const user = `面试问题：${input.query}\n\n回答范围：${scopeLabel}${previousContext ? `\n\n前序项目上下文（仅用于承接“这个项目 / 它 / 该方案”等指代）：\n${previousContext}` : ""}\n\n当前问题命中的资料：\n${context || "没有找到直接资料"}\n\n候选人个人背景：\n${personalContext || "本题不使用个人背景"}\n\n回答结构参考：\n${template}\n\n只输出候选人可以直接说出口的答案。第一句直接回答当前问题，不要客套开场，不要复述或确认题意；禁止以“我理解您指的是”“我理解这个问题是”“如果你问的是”“先明确一下”开头。后续继续自然补全同一篇回答。通常只参考当前问题命中的资料：通用题按通用资料回答，项目题按对应项目资料回答；追问必须先用前序项目上下文确定“这个项目”指代的项目，再结合当前命中的资料回答。当前题命中的原文是事实的最高优先级；若当前题没有直接命中，可使用前序项目原文承接已明确的项目事实，但不得编造前序资料没有的数字或结论。命中原文逐字稿时应使用其中可核查的事实、结构、数字和边界，但不得用无关原文覆盖当前题。候选人开始介绍项目的口语开场，应视为“请介绍该项目”：直接续写完整项目回答，不要向候选人提问、要求其继续说明或写成面试官追问。不要分析面试官的意图、不要解释回答方法、不要输出“结论/背景/具体行动/复盘”等机械标题；只有当前回答 Skill 明确且确有必要时，才自然分段。若资料不足，不得把无关项目当作案例。`;
   const upstream = await fetch(runtimeConfig.aiApiUrl, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${runtimeConfig.aiApiKey}` }, signal: AbortSignal.timeout(15000), body: JSON.stringify(buildAnswerRequest({ apiUrl: runtimeConfig.aiApiUrl, model: runtimeConfig.aiModel, system, user, stream: true })) });
   if (!upstream.ok) {
     const data = await upstream.json().catch(() => ({}));
@@ -265,6 +274,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "DELETE" && request.url === "/api/glossary") return await deleteGlossary(response);
     if (request.method === "GET" && request.url === "/api/rules") return getRules(response);
     if (request.method === "PUT" && request.url === "/api/rules") return await saveRules(request, response);
+    if (request.method === "DELETE" && request.url === "/api/rules") return await deleteRules(response);
     if (request.method === "POST" && request.url === "/api/config") return await updateConfig(request, response);
     if (request.method === "POST" && request.url === "/api/llm/test") return await testLlmConnection(response);
     if (request.method === "POST" && request.url === "/api/asr/test") return await testAsrConnection(response);
@@ -309,8 +319,11 @@ export async function startServer(listenPort = port) {
       resolve();
     });
   });
-  // 已存在的资料也需要在桌面首次启动后建立索引；失败时不阻塞 App，查询接口会明确降级。
-  void documentStore.load().then((documents) => semanticIndex.index(sectionsFromDocuments(documents))).catch(() => {});
+  // 首屏加载完成后再预建索引。资料较大时加载本地模型会瞬时占用 CPU，
+  // 不能与刚启动的窗口、设置和语音控制同时竞争资源。
+  setTimeout(() => {
+    void documentStore.load().then((documents) => semanticIndex.index(sectionsFromDocuments(documents))).catch(() => {});
+  }, startupSemanticIndexDelayMs);
   const address = server.address();
   console.log(`面试资料伴侣运行在 http://127.0.0.1:${address.port}`);
   return server;

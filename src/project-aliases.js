@@ -1,6 +1,6 @@
 const projectAliases = {
   "GEO 品牌增长平台": ["GEO", "GEO品牌增长平台", "品牌增长平台"],
-  "旅游智能营销": ["旅游项目", "旅游智能营销项目", "旅游智能营消", "旅游自能营销", "旅游智能影像", "Lai trip", "LaiTrip", "营销智能回答", "营销智能问答", "Attrip", "at trip", "at-trip"],
+  "旅游智能营销": ["旅游项目", "旅游智能营销项目", "旅游智能营消", "旅游自能营销", "旅游智能影像", "旅游获客", "旅游获客项目", "旅游获客场景", "旅游营销获客", "旅游客户获取", "Lai trip", "LaiTrip", "营销智能回答", "营销智能问答", "Attrip", "at trip", "at-trip"],
 };
 
 const canonicalNames = new Map([
@@ -18,7 +18,9 @@ function projectFromSource(source = "") {
 }
 
 function sectionProjectName(section = {}) {
-  return canonicalProjectName(section?.project) || projectFromSource(section?.source);
+  // 飞书正文的一级标题会被解析成“项目背景”等章节名，不是项目实体。
+  // 对专属项目资料，文件名是更稳定的归属信号，必须优先于章节标题。
+  return projectFromSource(section?.source) || inferredProjectName(section) || canonicalProjectName(section?.project);
 }
 
 export function canonicalProjectName(name = "") {
@@ -40,3 +42,4 @@ export function createProjectOptions(sections = []) {
 export function filterSectionsForProject(sections = [], projectId = "") {
   return sections.filter((section) => sectionProjectName(section).toLowerCase() === projectId);
 }
+import { inferredProjectName } from "./section-metadata.js";

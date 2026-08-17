@@ -1,5 +1,20 @@
 const questionStarters = ["如果", "你的", "你这个", "你们", "你做过", "介绍一下", "说说", "请问"];
 
+export function normalizeAsrQuestion(text = "") {
+  let normalized = String(text || "").trim().replace(/\s{2,}/gu, " ");
+  // 相邻重复的词或短语来自累计结果与新增分段的重复拼接；只压缩紧邻重复，
+  // 不改动“你觉得 A 和 A 有何不同”这类具有语义的非相邻重复。
+  normalized = normalized
+    .replace(/(请?介绍)(?:\s*\1)+/gu, "$1")
+    .replace(/(介绍一下)(?:\s*\1)+/gu, "$1")
+    .replace(/(请问)(?:\s*\1)+/gu, "$1")
+    .replace(/(你觉得)(?:\s*\1)+/gu, "$1");
+  // 英文产品名、模型名与缩写会包含连续字母或数字；只移除两侧都是中文/标点的单字母孤岛。
+  normalized = normalized.replace(/(?<=[\u4e00-\u9fff，。！？?、\s])[a-z](?=[\u4e00-\u9fff，。！？?、\s])/giu, "");
+  normalized = normalized.replace(/请介绍一下(?:\s*介绍一下)+/gu, "请介绍一下");
+  return normalized.replace(/\s{2,}/gu, " ").trim();
+}
+
 function hasQuestionCue(text) {
   return /(吗|呢|么|多少|几个|哪些|什么|为什么|怎么|如何|优势|挑战|经历|项目|介绍|负责|结果)/u.test(text);
 }

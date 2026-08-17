@@ -49,6 +49,16 @@ test("未指定项目的从零到一方法论题不能硬召回无关的 AI 能�
   assert.deepEqual(route.matches, []);
 });
 
+test("已锁定旅游项目时，从零到一开放题不能退回 AI Native 通用题", () => {
+  const sections = [
+    { title: "项目背景", project: "旅游智能营销", content: "解决旅游销售在公域获客、意向识别和私域转化中的效率问题。" },
+    { title: "整体解决思路", project: "旅游智能营销", content: "通过线索承接、需求澄清、套餐推荐和人工接管形成闭环。" },
+  ];
+  const route = routeAnswer("如果给你一个旅游获客场景，从 0 到 1 怎么做？", sections, { allowProjectOverview: true });
+  assert.equal(route.mode, "compose");
+  assert.deepEqual(route.matches.map((item) => item.title), ["项目背景", "整体解决思路"]);
+});
+
 test("自我介绍只保留个人经历资料，不混入泛 AI 项目资料", () => {
   const sections = [
     { title: "自我介绍", project: "自我介绍", content: "我有五年 AI 产品经验。" },
@@ -112,6 +122,21 @@ test("完整原文标题直接回答时，优先于名称相近但语义不同�
   assert.deepEqual(route.matches.map((item) => item.title), ["你的评分规则怎么制定的？"]);
 });
 
+test("Rubric 英文问法直接使用评分规则原文", () => {
+  const sections = [{ title: "你的评分规则怎么制定的？", content: "项目评分分三层。", archive: true }];
+  const route = routeAnswer("你们的 Rubric 是怎么制定的？", sections, { candidates: sections });
+  assert.equal(route.mode, "direct");
+  assert.deepEqual(route.matches.map((item) => item.title), ["你的评分规则怎么制定的？"]);
+});
+
+test("多个英文关键词的个人项目问题，不能只凭 Skill 一个词命中无关通用题", () => {
+  const genericSkill = { title: "为什么使用 Multi-Agent，而不是只用 Workflow 或 Skill", content: "通用方法论。", score: 30 };
+  const personalCoding = { title: "个人 Coding 实践", content: "我会用 Codex 和 Claude Code 搭建原型，并把重复流程沉淀成 Skill。", score: 18 };
+  const route = routeAnswer("我自己 Coding 的项目，Skill 怎么写的？", [genericSkill, personalCoding], { candidates: [genericSkill, personalCoding] });
+  assert.equal(route.mode, "compose");
+  assert.deepEqual(route.matches.map((item) => item.title), [personalCoding.title]);
+});
+
 test("没有多模态资料时，不能用任何包含“区别”的无关资料凑回答", () => {
   const sections = [
     { title: "AI 产品经理和普通产品经理有什么区别", content: "AI 产品经理更关注模型能力和评测。" },
@@ -140,6 +165,69 @@ test("明确点名旅游项目的概览问法优先返回项目介绍，而不�
   const route = routeAnswer("旅游项目怎么做", sections, { allowProjectOverview: true });
   assert.equal(route.mode, "compose");
   assert.equal(route.matches[0].title, "请介绍一下旅游智能营销项目");
+});
+
+test("项目概览排除飞书同步元信息，优先返回项目正文", () => {
+  const sections = [
+    { title: "GEO 品牌增长平台", project: "GEO 品牌增长平台", content: "资料归类：GEO 品牌增长平台\n来源：https://my.feishu.cn/docx/xxx\n文档 token：xxx\n当前飞书修订：1249\n同步说明：当前飞书全文将在文末逐字保留。" },
+    { title: "项目定位", project: "项目背景", content: "品牌 AI 认知监测与 GEO 策略优化平台。" },
+    { title: "项目简介", project: "项目背景", content: "帮助品牌理解在主流 AI 平台中的可见度、推荐位置、引用来源与竞品差距，并通过监测、诊断、优化、验证形成闭环。" },
+    { title: "AI能力拆解", project: "项目背景", content: "由多个 Agent 协同完成任务。" },
+  ];
+  const route = routeAnswer("请介绍一下 GEO 项目", sections, { allowProjectOverview: true });
+  assert.equal(route.mode, "compose");
+  assert.deepEqual(route.matches.map((item) => item.title), ["项目简介", "项目定位"]);
+});
+
+test("当前飞书版本容器中的零散备注不能被当成技术题答案", () => {
+  const sections = [
+    { title: "当前飞书版本（修订 1317）", project: "旅游智能营销", content: "护栏指标？项目构成，Prompt 怎么写？项目 Bad Case。" },
+    { title: "RAG 在这个项目里起什么作用，知识链路怎么设计", project: "旅游智能营销", content: "产品资料审核后同步，检索命中后连同版本和来源交给模型生成受约束回答。" },
+  ];
+  const route = routeAnswer("旅游智能营销项目的 RAG 怎么做？", sections, { candidates: sections });
+  assert.equal(route.matches[0].title, "RAG 在这个项目里起什么作用，知识链路怎么设计");
+});
+
+test("项目技术题整合实际 RAG 与 Agent 资料，不把项目流程当作技术栈", () => {
+  const sections = [
+    { title: "当前飞书版本（修订 1317）", project: "旅游智能营销", content: "护栏指标？项目构成。" },
+    { title: "RAG 在这个项目里起什么作用，知识链路怎么设计", project: "旅游智能营销", content: "检索产品知识并携带来源和版本。" },
+    { title: "Agent、Skill 和工具边界怎么划分", project: "旅游智能营销", content: "多轮理解由 Agent 处理，确定性查询走工具。" },
+    { title: "整体解决思路", project: "旅游智能营销", content: "形成获客到成交闭环。" },
+  ];
+  const route = routeAnswer("旅游智能营销项目用了什么 AI 技术？", sections, { candidates: sections });
+  assert.equal(route.mode, "compose");
+  assert.deepEqual(route.matches.map((item) => item.title), ["RAG 在这个项目里起什么作用，知识链路怎么设计", "Agent、Skill 和工具边界怎么划分"]);
+});
+
+test("项目技术题可识别“用了什么 AI 技术”的自然问法", () => {
+  const sections = [
+    { title: "RAG 在这个项目里起什么作用", project: "旅游智能营销", content: "检索产品知识。" },
+    { title: "Agent、Skill 和工具边界怎么划分", project: "旅游智能营销", content: "Agent 负责多轮理解。" },
+  ];
+  const route = routeAnswer("旅游智能营销项目用了什么 AI 技术？", sections, { candidates: sections });
+  assert.deepEqual(route.matches.map((item) => item.title), ["RAG 在这个项目里起什么作用", "Agent、Skill 和工具边界怎么划分"]);
+});
+
+test("项目技术题优先 RAG 与 Agent 标题，不让业务检索功能抢占", () => {
+  const sections = [
+    { title: "S6 标准套餐检索、推荐与边界说明", content: "业务功能。" },
+    { title: "RAG 在这个项目里起什么作用", content: "检索增强生成。" },
+    { title: "Agent、Skill 和工具边界怎么划分", content: "多轮任务编排。" },
+  ];
+  const route = routeAnswer("这个项目用了什么 AI 技术？", sections, { candidates: sections });
+  assert.deepEqual(route.matches.map((item) => item.title), ["RAG 在这个项目里起什么作用", "Agent、Skill 和工具边界怎么划分", "S6 标准套餐检索、推荐与边界说明"]);
+});
+
+test("项目简介被切成多段时，项目概览只展示一次并优先业务正文", () => {
+  const sections = [
+    { title: "项目简介", content: "第一段：项目解决品牌可见度问题。" },
+    { title: "项目简介", content: "第二段：后续的业务背景说明。" },
+    { title: "项目定位", content: "品牌 AI 认知监测与策略优化平台。" },
+    { title: "AI能力拆解", content: "技术实现细节。" },
+  ];
+  const route = routeAnswer("介绍一下这个项目", sections, { allowProjectOverview: true });
+  assert.deepEqual(route.matches.map((item) => item.title), ["项目简介", "项目定位"]);
 });
 
 test("候选人主动开始讲项目时直接组织项目介绍，不退回澄清提问", () => {

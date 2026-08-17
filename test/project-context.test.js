@@ -15,10 +15,11 @@ test("问题明确提到项目名称时优先切换项目", () => {
 });
 
 test("营销智能回答和 Attrip 作为旅游智能营销项目别名锁定项目范围", () => {
-  const tourism = { id: "tourism", name: "旅游智能营销", aliases: ["营销智能回答", "Attrip", "at trip", "旅游智能营消"] };
+  const tourism = { id: "tourism", name: "旅游智能营销", aliases: ["营销智能回答", "Attrip", "at trip", "旅游智能营消", "旅游获客", "旅游获客项目"] };
   assert.equal(resolveProjectContext({ question: "那我给您讲一下营销智能回答，也就是 Attrip", projects: [tourism] }).projectId, "tourism");
   assert.equal(resolveProjectContext({ question: "那我给您讲一下营销智能回答，也就是 Attrip", projects: [tourism] }).source, "explicit");
   assert.equal(resolveProjectContext({ question: "旅游智能营消项目里 RAG 怎么做", projects: [tourism] }).projectId, "tourism");
+  assert.deepEqual(resolveProjectContext({ question: "如果给你一个旅游获客场景，从 0 到 1 怎么做", projects: [tourism] }), { projectId: "tourism", source: "explicit", confidence: 1 });
 });
 
 test("页面将营销智能回答和 Attrip 传给项目范围解析", async () => {

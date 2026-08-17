@@ -1,6 +1,7 @@
 node_modules/
 .local/
 dist/
+release/
 .DS_Store
 .worktrees/
 .env
@@ -11,5 +12,15 @@ dist/
 *.key
 *.mobileprovision
 local-data/
-private/
+/private/
 exports/
+
+# 仅保存在本机的面试资料、项目原文与个人信息；绝不推送到 GitHub。
+/面试知识库-*.md
+/GEO项目梳理-大王版.md
+/旅游场景.md
+/AI产品经理面试问题与知识笔记.md
+/简历 7.0.md
+/interview-knowledge-base.md
+/AI产品经理术语表.md
+/AI产品经理面试完整口述回答Skill.md

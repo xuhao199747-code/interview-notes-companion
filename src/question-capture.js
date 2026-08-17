@@ -7,6 +7,12 @@ export function nextQuestionCaptureAction({ active = false, waitingFinal = false
   return active ? "submit" : "start";
 }
 
+export function nextQuestionCaptureTerminalAction({ listening = false, awaitingFinal = false } = {}) {
+  if (awaitingFinal) return "submit";
+  if (!listening) return "ignore";
+  return "abort";
+}
+
 export function shouldAutoSubmitQuestionCapture({ hasVoice = false, silenceMs = 0 } = {}) {
   return hasVoice && silenceMs >= questionCaptureSilenceMs;
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractLatestQuestionTurn } from "../src/question-turn.js";
+import { extractLatestQuestionTurn, normalizeAsrQuestion } from "../src/question-turn.js";
 
 test("连续转写包含多个问题时只保留最后一个问题", () => {
   assert.equal(extractLatestQuestionTurn("介绍一下你自己。你的项目有什么优势"), "你的项目有什么优势");
@@ -32,4 +32,15 @@ test("主题和泛化追问被错断时保留主题，避免只剩“区别是�
     extractLatestQuestionTurn("多模态模型和传统模型有什么差异。区别是什么？"),
     "多模态模型和传统模型有什么差异。区别是什么"
   );
+});
+
+test("语音转写会清理重复引导语与夹在中文中的孤立字母噪声", () => {
+  assert.equal(
+    normalizeAsrQuestion("请介绍请介绍一下q介绍一下GEO的这个。"),
+    "请介绍一下GEO的这个。",
+  );
+  assert.equal(normalizeAsrQuestion("如果让我设计一个 a Agent，怎么做？"), "如果让我设计一个 Agent，怎么做？");
+  assert.equal(normalizeAsrQuestion("你了解 Kimi K3 吗？"), "你了解 Kimi K3 吗？");
+  assert.equal(normalizeAsrQuestion("请问请问 RAG 怎么设计？"), "请问 RAG 怎么设计？");
+  assert.equal(normalizeAsrQuestion("这个这个产品的好处是什么？"), "这个这个产品的好处是什么？");
 });

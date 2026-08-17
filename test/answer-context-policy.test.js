@@ -28,32 +28,79 @@ test("通用问题保留项目技术资料作为事实参考，但排除自我�
 
 test("通用 Agent 题优先使用非档案的通用方法论，不让 GEO 或旅游逐字稿污染答案", () => {
   const librarySections = [
-    { title: "什么是 Agent", source: "面试知识库-AI产品通用能力.md", archive: false, content: "目标、状态、工具和受控执行。" },
-    { title: "Prompt Agent", source: "面试知识库-AI产品通用能力.md", archive: true, content: "GEO 项目逐字稿。" },
+    { title: "什么是 Agent", source: "面试知识库-通用面试问题.md", archive: false, content: "目标、状态、工具和受控执行。" },
+    { title: "Prompt Agent", source: "面试知识库-通用面试问题.md", archive: true, content: "通用逐字稿。" },
     { title: "会话经营 Agent", source: "面试知识库-旅游智能营销.md", archive: false, content: "旅游项目资料。" },
   ];
   const materials = selectAnswerMaterials({ scope: "general", sections: librarySections });
   assert.deepEqual(materials.map((item) => item.title), ["什么是 Agent"]);
 });
 
+test("当前飞书版本优先于同一资料库中的历史快照", () => {
+  const librarySections = [
+    { title: "问题：如何搭建评测体系", source: "面试知识库-通用面试问题.md", archive: false, content: "当前原文：收集正常案例、错误案例和边界案例。" },
+    { title: "如何搭建评测体系", source: "面试知识库-通用面试问题.md", archive: true, content: "历史快照：收集 Good Case 和 Bad Case。" },
+  ];
+  const materials = selectAnswerMaterials({ scope: "general", query: "如何搭建评测体系", sections: librarySections });
+  assert.deepEqual(materials.map((item) => item.content), ["当前原文：收集正常案例、错误案例和边界案例。"]);
+});
+
 test("通用题与原文问题标题明确对应时，保留该条逐字稿作为直接证据", () => {
   const librarySections = [
     { title: "线索评分", source: "AI产品经理术语表.md", archive: false, content: "线索优先级。" },
-    { title: "你的评分规则怎么制定的？", source: "面试知识库-AI产品通用能力.md", archive: true, content: "定维度、配权重、做回测，85 分为直接发布线。" },
-    { title: "Prompt Agent", source: "面试知识库-AI产品通用能力.md", archive: true, content: "GEO 项目逐字稿。" },
+    { title: "你的评分规则怎么制定的？", source: "面试知识库-通用面试问题.md", archive: true, content: "定维度、配权重、做回测，85 分为直接发布线。" },
+    { title: "Prompt Agent", source: "面试知识库-通用面试问题.md", archive: true, content: "通用逐字稿。" },
   ];
   const materials = selectAnswerMaterials({ scope: "general", query: "你的评分规则怎么制定的？", sections: librarySections });
-  assert.deepEqual(materials.map((item) => item.title), ["线索评分", "你的评分规则怎么制定的？"]);
+  assert.deepEqual(materials.map((item) => item.title), ["你的评分规则怎么制定的？"]);
 });
 
-test("原文里已有技术术语问答时，通用技术题也优先保留该原文", () => {
+test("Rubric 的英文问法命中写好的评分规则逐字稿", () => {
   const librarySections = [
-    { title: "什么是 Agent", source: "面试知识库-AI产品通用能力.md", archive: false, content: "通用整理答案。" },
-    { title: "Agent 是什么？", source: "面试知识库-AI产品通用能力.md", archive: true, content: "原文逐字稿答案。" },
+    { title: "项目背景", source: "面试知识库-面试口述与复盘原文.md", archive: false, content: "当前飞书正文。" },
+    { title: "如何搭建评测体系", source: "面试知识库-通用面试问题.md", archive: false, content: "通用评测方法。" },
+    { title: "你的评分规则怎么制定的？", source: "面试知识库-面试口述与复盘原文.md", archive: true, content: "项目评分分三层：品牌表现、内容诊断和平台能力。" },
+  ];
+  const materials = selectAnswerMaterials({ scope: "general", query: "你们的 Rubric 是怎么制定的？", sections: librarySections });
+  assert.deepEqual(materials.map((item) => item.title), ["如何搭建评测体系", "你的评分规则怎么制定的？"]);
+});
+
+test("当前飞书已有同题术语答案时，历史逐字稿不再参与自动回答", () => {
+  const librarySections = [
+    { title: "什么是 Agent", source: "面试知识库-通用面试问题.md", archive: false, content: "通用整理答案。" },
+    { title: "Agent 是什么？", source: "面试知识库-通用面试问题.md", archive: true, content: "原文逐字稿答案。" },
     { title: "会话经营 Agent", source: "面试知识库-旅游智能营销.md", archive: true, content: "旅游项目逐字稿。" },
   ];
   const materials = selectAnswerMaterials({ scope: "general", query: "Agent 是什么？", sections: librarySections });
-  assert.deepEqual(materials.map((item) => item.title), ["什么是 Agent", "Agent 是什么？"]);
+  assert.deepEqual(materials.map((item) => item.title), ["什么是 Agent"]);
+});
+
+test("项目题也只使用当前飞书版本，历史项目介绍仅供人工追溯", () => {
+  const librarySections = [
+    { title: "项目背景", source: "面试知识库-GEO品牌增长平台.md", archive: false, content: "当前飞书：解决品牌在 AI 搜索中不可见的问题。" },
+    { title: "请介绍一下 GEO 项目", source: "面试知识库-GEO品牌增长平台.md", archive: true, content: "历史快照：过期的项目介绍。" },
+  ];
+  const materials = selectAnswerMaterials({ scope: "project", query: "请介绍一下 GEO 项目", sections: librarySections });
+  assert.deepEqual(materials.map((item) => item.content), ["当前飞书：解决品牌在 AI 搜索中不可见的问题。"]);
+});
+
+test("项目技术题命中明确的历史逐字原文时，保留该答案而不丢失", () => {
+  const librarySections = [
+    { title: "技术选型", source: "面试知识库-旅游智能营销.md", archive: false, content: "当前飞书正文。" },
+    { title: "RAG 在这个项目里起什么作用，知识链路怎么设计", source: "面试知识库-旅游智能营销.md", archive: true, content: "原文回答：先检索再生成。" },
+  ];
+  const materials = selectAnswerMaterials({ scope: "project", query: "RAG 在这个项目里起什么作用，知识链路怎么设计？", sections: librarySections });
+  assert.equal(materials.some((item) => item.title.startsWith("RAG 在这个项目里起什么作用")), true);
+});
+
+test("项目技术概览也可使用标题明确的历史 RAG 与 Agent 逐字答案", () => {
+  const librarySections = [
+    { title: "技术选型", source: "面试知识库-旅游智能营销.md", archive: false, content: "当前飞书正文。" },
+    { title: "RAG 在这个项目里起什么作用", source: "面试知识库-旅游智能营销.md", archive: true, content: "原文 RAG 答案。" },
+    { title: "Agent、Skill 和工具边界怎么划分", source: "面试知识库-旅游智能营销.md", archive: true, content: "原文 Agent 答案。" },
+  ];
+  const materials = selectAnswerMaterials({ scope: "project", query: "旅游智能营销项目用了什么 AI 技术？", sections: librarySections });
+  assert.deepEqual(materials.map((item) => item.title), ["技术选型", "RAG 在这个项目里起什么作用", "Agent、Skill 和工具边界怎么划分"]);
 });
 
 test("明确询问候选人经历时才允许使用个人经历", () => {
@@ -61,6 +108,16 @@ test("明确询问候选人经历时才允许使用个人经历", () => {
   const materials = selectAnswerMaterials({ scope, sections });
   assert.equal(scope, "experience");
   assert.equal(materials.some((item) => item.title === "自我介绍"), true);
+});
+
+test("询问我自己的 Coding 项目和 Skill 时按个人经历检索，不能退化成通用术语题", () => {
+  const codingProfile = { title: "个人能力", project: "自我介绍", source: "面试口述原文.md", content: "我的优势是 Vibe Coding 能力，我会使用 Codex 和 Claude Code 完成原型开发。" };
+  const genericSkill = { title: "Skill 怎么设计", project: "通用方法论", source: "面试知识库-通用面试问题.md", content: "Skill 用于封装稳定能力。" };
+  const scope = classifyAnswerScope("我自己 Coding 的项目，Skill 怎么写的？");
+  const materials = selectAnswerMaterials({ scope, query: "我自己 Coding 的项目，Skill 怎么写的？", sections: [codingProfile, genericSkill] });
+
+  assert.equal(scope, "experience");
+  assert.deepEqual(materials.map((item) => item.title), ["个人能力"]);
 });
 
 test("泛问候选人的项目概览属于经历题，保留两个项目的概览资料", () => {
@@ -111,24 +168,24 @@ test("口语化的外部产品体验题不因产品名不在词表而退化成�
   assert.deepEqual(selectAnswerMaterials({ scope, sections }), []);
 });
 
-test("点名 AI 模型的产品认知题进入产品分析，不退化为参数方法论", () => {
+test("点名 AI 模型的产品认知题不把术语表作为资料答案", () => {
   const scope = classifyAnswerScope("你了解 Kimi K3 吗？它有什么特点？");
   assert.equal(scope, "product");
   const materials = selectAnswerMaterials({ scope, sections: [
     { title: "Kimi K3", source: "AI产品经理术语表.md", content: "Kimi K3 的产品资料" },
     { title: "GEO 项目", source: "面试知识库-GEO品牌增长平台.md", content: "项目资料" },
   ] });
-  assert.deepEqual(materials.map((item) => item.title), ["Kimi K3"]);
+  assert.deepEqual(materials, []);
 });
 
-test("AI 趋势题优先使用具体近期产品资料，不退化成技术清单", () => {
+test("AI 趋势题不会从术语表取资料答案", () => {
   const scope = classifyAnswerScope("你最近关注什么 AI 趋势，或者有什么新模型？");
   assert.equal(scope, "general");
   const materials = selectAnswerMaterials({ scope, query: "你最近关注什么 AI 趋势，或者有什么新模型？", sections: [
     { title: "你最近关注什么 AI 趋势，或者新发布了什么模型？", source: "AI产品经理术语表.md", content: "我最近关注 Kimi K3。" },
     { title: "AI 产品经理需要掌握哪些技术知识？", source: "AI产品经理术语表.md", content: "大模型、RAG、Agent。" },
   ] });
-  assert.deepEqual(materials.map((item) => item.title), ["你最近关注什么 AI 趋势，或者新发布了什么模型？"]);
+  assert.deepEqual(materials, []);
 });
 
 test("经历问题自动保留相关项目资料，但不把回答 Skill 当知识库检索", () => {
@@ -161,9 +218,9 @@ test("页面按回答范围选择资料，并只在允许时发送个人背景",
   const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.match(app, /classifyAnswerScope\(normalizedQuery/);
-  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: candidateSections, query: normalizedQuery \}\)/);
+  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: scoped\.sections, query: normalizedQuery \}\)/);
   assert.match(app, /shouldUsePersonalContext\(scope\) \? selectPersonalContext/);
-  assert.match(app, /filter\(\(doc\) => doc\.type !== "skill"\)/);
+  assert.match(app, /filter\(\(doc\) => doc\.type !== "skill" && doc\.type !== "converter-skill"\)/);
   assert.doesNotMatch(html, /id="answerModeSelect"/);
   assert.doesNotMatch(app, /interview\.answerMode/);
 });
@@ -210,11 +267,11 @@ test("项目技术题先回答实际 AI 技术，而不是把业务闭环当技�
     readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8"),
   ]);
   assert.match(server, /项目技术题/);
-  assert.match(server, /Agent、RAG、Workflow/);
+  assert.match(server, /题目与当前项目资料共同确认/);
   assert.match(server, /不要把“监测—诊断—优化—验证”这类业务闭环当作技术栈/);
   assert.match(server, /技术栈是什么/);
   assert.match(rules, /项目技术题/);
-  assert.match(rules, /Agent、RAG、Workflow/);
+  assert.match(rules, /题目与当前项目资料共同确认/);
   assert.match(rules, /不能当作技术栈/);
 });
 
@@ -223,6 +280,46 @@ test("项目技术栈问法会为本地检索补充 AI 技术锚点", async () =
   assert.match(server, /用了什么技术/);
   assert.match(server, /技术栈|技术架构/);
   assert.match(server, /Agent RAG Workflow 模型调用 规则引擎 混合召回 向量检索 评测 人工审核/);
+});
+
+test("回答规则不把通用题固定绑定到项目、模型或技术方案", async () => {
+  const [server, rules] = await Promise.all([
+    readFile(new URL("../server.js", import.meta.url), "utf8"),
+    readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8"),
+  ]);
+  assert.match(server, /不能预设具体项目、模型、产品或技术方案/);
+  assert.match(rules, /具体内容只由题目范围和命中原文决定/);
+  assert.match(rules, /默认用 3—5 个短段落/);
+  assert.match(rules, /场景、做法和技术合在同一段/);
+});
+
+test("命中原文时优先原文，未命中时才按题型选择回答入口", async () => {
+  const [server, rules] = await Promise.all([
+    readFile(new URL("../server.js", import.meta.url), "utf8"),
+    readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8"),
+  ]);
+  assert.match(server, /命中原文逐字稿时优先沿用原文/);
+  assert.match(server, /未命中原文时才按题型选择回答入口/);
+  assert.match(rules, /命中原文时，优先使用原文/);
+  assert.match(rules, /未命中原文时，才按题型选择入口/);
+  assert.match(rules, /概念、术语、参数或简单事实题/);
+});
+
+test("生成策略区分原文直答、资料整合和通用兜底，不能让通用模板覆盖资料", async () => {
+  const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
+  assert.match(server, /原文直答/);
+  assert.match(server, /资料整合/);
+  assert.match(server, /通用兜底/);
+  assert.match(server, /不得用通用模板覆盖命中的原文/);
+});
+
+test("给定场景的开放题先从用户背景与痛点进入产品方案", async () => {
+  const rules = await readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8");
+  assert.match(rules, /给定业务场景的开放题/);
+  assert.match(rules, /用户背景、具体场景与未被满足的痛点/);
+  assert.match(rules, /产品目标、方案和验证方式/);
+  assert.match(rules, /不从技术名词或功能清单开场/);
+  assert.match(rules, /不适用于术语定义、项目技术追问或已有明确原文的具体做法/);
 });
 
 test("通用 AI 题用可执行建议表达，不把方法论说成候选人项目经历", async () => {
@@ -234,10 +331,10 @@ test("通用 AI 题用可执行建议表达，不把方法论说成候选人项�
 test("AI 趋势题要求先讲具体近期产品，而不是技术知识清单", async () => {
   const rules = await readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8");
   assert.match(rules, /最近关注什么 AI 趋势/);
-  assert.match(rules, /具体近期产品或模型/);
-  assert.match(rules, /Kimi K3/);
-  assert.match(rules, /Hailuo 2\.3/);
+  assert.match(rules, /具体产品/);
   assert.match(rules, /技术知识清单/);
+  assert.match(rules, /题目或命中资料明确的具体产品/);
+  assert.doesNotMatch(rules, /当前优先使用已维护资料中的 Kimi K3/);
 });
 
 test("通用 AI 题包含评测闭环，且区分离线评测与线上指标", async () => {
@@ -274,11 +371,14 @@ test("生成指令禁止把题意复述、面试官考察点或回答过程说�
     readFile(new URL("../server.js", import.meta.url), "utf8"),
     readFile(new URL("../assets/AI产品经理回答规则.md", import.meta.url), "utf8"),
   ]);
-  assert.match(server, /不要复述题意/);
+  assert.match(server, /不要复述、改写或确认题意/);
   assert.match(server, /不要揣测或解释面试官考察点/);
   assert.match(server, /我会这样组织我的理解/);
-  assert.match(rules, /不复述题意/);
+  assert.match(server, /我理解您指的是/);
+  assert.match(server, /如果你问的是/);
+  assert.match(rules, /不复述、改写或确认题意/);
   assert.match(rules, /不解释面试官考察点/);
+  assert.match(rules, /我理解您指的是/);
 });
 
 test("LLM 首次使用纯英文术语时附上中文解释", async () => {
@@ -288,12 +388,27 @@ test("LLM 首次使用纯英文术语时附上中文解释", async () => {
   assert.match(server, /RAG（检索增强生成）/);
 });
 
+test("未知英文定义题不会被编造成模型、架构或缩写", async () => {
+  const server = await readFile(new URL("../server.js", import.meta.url), "utf8");
+  assert.match(server, /单个英文词或疑似语音转写/);
+  assert.match(server, /不得编造它是某个模型、架构、产品或缩写/);
+  assert.match(server, /不得虚构英文全称/);
+  assert.match(server, /Loop 表示循环/);
+});
+
+test("提交检索后以归一化后的问题显示和保存当前题", async () => {
+  const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+  assert.match(app, /const displayQuery = normalizedQuery \|\| cleanQuery/);
+  assert.match(app, /\$\("transcriptText"\)\.textContent = displayQuery/);
+  assert.match(app, /beginQuestion\(answerState, displayQuery,/);
+});
+
 test("LLM 只参考按题型路由后的资料，原文逐字稿不会全局覆盖通用题", async () => {
   const [server, app] = await Promise.all([
     readFile(new URL("../server.js", import.meta.url), "utf8"),
     readFile(new URL("../app.js", import.meta.url), "utf8"),
   ]);
-  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: candidateSections, query: normalizedQuery \}\)/);
+  assert.match(app, /selectAnswerMaterials\(\{ scope, sections: scoped\.sections, query: normalizedQuery \}\)/);
   assert.match(server, /只参考当前问题命中的资料/);
   assert.match(server, /通用题按通用资料回答/);
   assert.match(server, /项目题按对应项目资料回答/);

@@ -1,25 +1,33 @@
 import { parseMarkdown, searchSections } from "./src/search.js";
 import { llmConfigChangedMessage, secretKeyPlaceholder } from "./src/config-ui.js";
-import { acceptLlmAnswer, beginQuestion, buildFollowUpContext, createAnswerState, isConfirmedQuestion } from "./src/answer-state.js";
+import { acceptLlmAnswer, beginQuestion, buildFollowUpContext, createAnswerState, isConfirmedQuestion, setQuestionContext, setQuestionDocument } from "./src/answer-state.js";
 import { downsampleToPcm16 } from "./src/audio-pcm.js";
 import { resolveProjectContext, shouldScopeToProject } from "./src/project-context.js";
 import { createProjectOptions, filterSectionsForProject } from "./src/project-aliases.js";
 import { routeAnswer } from "./src/answer-router.js";
 import { classifyTranscript } from "./src/turn-detector.js";
 import { mergeAsrTranscript } from "./src/asr-transcript-buffer.js";
+import { normalizeAsrQuestion } from "./src/question-turn.js";
 import { formatGlobalHotkey } from "./src/global-hotkey.js";
-import { nextQuestionCaptureAction, questionCaptureFinalResultWaitMs, questionCaptureRestartDelayMs, questionCaptureSilenceMs } from "./src/question-capture.js";
+import { nextQuestionCaptureAction, nextQuestionCaptureTerminalAction, questionCaptureFinalResultWaitMs, questionCaptureRestartDelayMs, questionCaptureSilenceMs } from "./src/question-capture.js";
 import { decideQuestionCaptureHealth } from "./src/question-capture-health.js";
 import { selectPersonalContext } from "./src/personal-context.js";
 import { extractSseDeltas } from "./src/llm-stream.js";
 import { getActiveSkillName } from "./src/skill-ui.js";
 import { syncActiveSkill } from "./src/skill-sync.js";
-import { defaultGlossary, normalizeQuestion, parseGlossaryMarkdown } from "./src/glossary.js";
+import { defaultGlossary, mergeGlossaryTerms, normalizeQuestion, parseGlossaryMarkdown } from "./src/glossary.js";
 import { classifyAnswerScope, selectAnswerMaterials, shouldUsePersonalContext } from "./src/answer-context-policy.js";
 import { mergeHybridCandidates } from "./src/hybrid-retrieval.js";
+import { selectAnswerEvidence } from "./src/answer-evidence.js";
+import { selectLlmAnswerMaterials } from "./src/llm-answer-materials.js";
 import { withRetrievalDeadline } from "./src/retrieval-budget.js";
 import { bundledKnowledgeFiles, mergeBundledDocuments } from "./src/bundled-knowledge.js";
 import { downloadTextFile } from "./src/download-file.js";
+import { nextOverlayWindowMode } from "./src/overlay-mode-sync.js";
+import { nextVisibleTranscript } from "./src/asr-display.js";
+import { extractOriginalAnswer } from "./src/document-excerpt.js";
+import { hydrateDocumentsInBatches } from "./src/startup-hydration.js";
+import { buildLlmContext } from "./src/llm-context.js";
 
 const legacyDefaultTemplate = "结论\n背景\n具体行动\n结果\n复盘";
 const defaultTemplate = "直接回答问题，使用自然、可口述的段落。优先说明与问题直接相关的事实、口径、做法和结果。";
@@ -31,15 +39,24 @@ const savedDeletedDocuments = readJsonStorage("interview.deletedDocuments", []);
 const savedGlossary = readJsonStorage("interview.glossary", defaultGlossary);
 const savedQuestionHotkey = readStorage("interview.questionCaptureHotkey", "Alt+Space");
 const savedTemplate = readStorage("interview.template", defaultTemplate);
-const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") })) : [], template: savedTemplate === legacyDefaultTemplate ? defaultTemplate : savedTemplate, templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, repeatAudio: null, repeatListening: false, repeatText: "", repeatSilenceTimer: null, repeatFinalizeTimer: null, repeatRestartTimer: null, repeatReadyAt: 0, repeatAwaitingFinal: false, pendingQuestionCaptureStart: false, repeatCaptureId: null, repeatLastVoiceAt: 0, repeatLastAudioFrameAt: 0, repeatLastRecoveryAt: 0, repeatHasVoice: false, repeatSubmitted: false, repeatRecovering: false, asrProvider: "browser", savedAsrProvider: "browser", activeProjectId: readStorage("interview.activeProjectId", ""), glossary: Array.isArray(savedGlossary) ? savedGlossary : defaultGlossary, glossaryFileName: readStorage("interview.glossaryFileName", "内置 AI 产品术语"), glossaryMarkdown: readStorage("interview.glossaryMarkdown", ""), answerRules: null, answerOverlayExpanded: false, answerOverlayView: "current" };
+const state = { sections: [], documents: Array.isArray(savedDocuments) ? savedDocuments.map((doc) => ({ type: "knowledge", ...doc, sections: [] })) : [], template: savedTemplate === legacyDefaultTemplate ? defaultTemplate : savedTemplate, templateName: readStorage("interview.templateName", "面试口头回答模板"), deletedDocuments: Array.isArray(savedDeletedDocuments) ? savedDeletedDocuments : [], editingDocument: null, repeatAudio: null, repeatListening: false, repeatText: "", repeatSilenceTimer: null, repeatFinalizeTimer: null, repeatRestartTimer: null, repeatReadyAt: 0, repeatAwaitingFinal: false, pendingQuestionCaptureStart: false, repeatCaptureId: null, repeatLastVoiceAt: 0, repeatLastAudioFrameAt: 0, repeatLastRecoveryAt: 0, repeatHasVoice: false, repeatSubmitted: false, repeatRecovering: false, knowledgeReady: false, asrProvider: "browser", savedAsrProvider: "browser", activeProjectId: readStorage("interview.activeProjectId", ""), glossary: mergeGlossaryTerms(Array.isArray(savedGlossary) ? savedGlossary : []), glossaryFileName: readStorage("interview.glossaryFileName", "内置 AI 产品术语"), glossaryMarkdown: readStorage("interview.glossaryMarkdown", ""), answerRules: null, answerOverlayExpanded: false, answerOverlayView: "current" };
 let documentSaveQueue = Promise.resolve();
+let syncedOverlayWindowMode = null;
 const answerState = createAnswerState();
+const allowedQuestionCaptureSources = new Set(["button", "hotkey", "recovery", "queued"]);
 state.questionHotkey = savedQuestionHotkey || "Alt+Space";
 function refreshSearchSections() {
-  state.sections = state.documents.filter((doc) => doc.type !== "skill").flatMap((doc) => doc.sections);
+  state.sections = state.documents.filter((doc) => doc.type !== "skill" && doc.type !== "converter-skill").flatMap((doc) => doc.sections);
 }
 refreshSearchSections();
 const $ = (id) => document.getElementById(id);
+function yieldToUi() {
+  return new Promise((resolve) => window.requestAnimationFrame(resolve));
+}
+
+function hydrateDocumentSections(documents) {
+  return hydrateDocumentsInBatches(documents, parseMarkdown, { yieldToUi });
+}
 const demoMarkdown = `# 自我介绍\n我有五年产品经验，负责过从零到一的 SaaS 产品，擅长用户研究、产品规划和跨团队协作。\n\n## 项目挑战\n我通过用户访谈定位核心问题，和工程团队一起拆解方案并快速验证，最终让关键流程转化率提升了 28%。\n\n## 离职原因\n希望加入更重视用户价值和长期产品建设的团队，在更复杂的业务环境中持续成长。\n\n## 你为什么适合这个岗位\n我既能深入理解用户，也能把模糊的问题拆成清晰可执行的计划，并用数据验证结果。`;
 
 function emptyUploadCard(kind, inputId, title, hint) {
@@ -77,7 +94,7 @@ async function loadPersistedDocuments() {
     if (!response.ok) throw new Error("读取本地资料失败");
     const payload = await response.json();
     if (Array.isArray(payload.documents) && payload.documents.length) {
-      state.documents = payload.documents.map((doc) => ({ ...doc, sections: parseMarkdown(doc.markdown || "", doc.name || "未命名资料") }));
+      state.documents = await hydrateDocumentSections(payload.documents);
       const syncedSkill = syncActiveSkill({ documents: state.documents, templateName: state.templateName });
       if (syncedSkill) {
         state.template = syncedSkill.template;
@@ -108,6 +125,11 @@ function persistGlossary() {
   void fetch("/api/glossary", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: state.glossaryFileName, markdown: state.glossaryMarkdown }) }).catch(() => {});
 }
 
+function syncQuestionCaptureHotwords() {
+  const terms = state.glossary.map((entry) => entry?.term).filter(Boolean);
+  return window.interviewApp?.configureQuestionCaptureHotwords?.(terms);
+}
+
 async function loadPersistedGlossary() {
   try {
     const response = await fetch("/api/glossary");
@@ -116,7 +138,7 @@ async function loadPersistedGlossary() {
     if (glossary?.name && glossary?.markdown) {
       const terms = parseGlossaryMarkdown(glossary.markdown);
       if (terms.length) {
-        state.glossary = terms;
+        state.glossary = mergeGlossaryTerms(terms);
         state.glossaryFileName = glossary.name;
         state.glossaryMarkdown = glossary.markdown;
         writeStorage("interview.glossary", JSON.stringify(state.glossary));
@@ -129,6 +151,7 @@ async function loadPersistedGlossary() {
   } catch {
     // 静态页面仍可使用浏览器缓存；桌面端会从本机文件恢复。
   }
+  void syncQuestionCaptureHotwords();
   renderRetrievalSettings();
 }
 
@@ -152,10 +175,12 @@ function downloadDocument(name) {
 function renderDocuments() {
   $("docCount").textContent = state.documents.length;
   if ($("knowledgeSummary")) $("knowledgeSummary").textContent = state.documents.length ? `${state.documents.length} 个资料文件已加载` : "知识库为空";
-  if ($("documentList")) $("documentList").innerHTML = state.documents.filter((doc) => doc.type !== "skill").map((doc) => `<div class="doc-item"><span>▤ &nbsp;${escapeHtml(doc.name)}</span><span>${doc.sections.length} 节 <button class="delete-doc" data-doc="${escapeHtml(doc.name)}" title="删除文档">×</button></span></div>`).join("");
-  const documents = state.documents.filter((doc) => doc.type !== "skill");
-  $("knowledgeGrid").innerHTML = documents.length ? documents.map((doc) => `<article class="knowledge-card"><div class="knowledge-card-icon">${escapeHtml(doc.type === "transcript" ? "稿" : "KB")}</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>${escapeHtml({ transcript: "逐字稿", knowledge: "知识库" }[doc.type] || "知识库")} · ${doc.sections.length} 个章节 · ${doc.sections.reduce((sum, section) => sum + section.content.length, 0)} 字</p></div><div class="knowledge-card-actions"><button class="download-doc large" data-doc="${escapeHtml(doc.name)}">下载</button><button class="delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`).join("") : emptyUploadCard("documents", "fileInputModule", "拖入资料文件，或点击上传", "支持 Markdown 和 Go 源码");
+  if ($("documentList")) $("documentList").innerHTML = state.documents.filter((doc) => doc.type !== "skill" && doc.type !== "converter-skill").map((doc) => `<div class="doc-item"><span>▤ &nbsp;${escapeHtml(doc.name)}</span><span>${doc.sections.length} 节 <button class="delete-doc" data-doc="${escapeHtml(doc.name)}" title="删除文档">×</button></span></div>`).join("");
+  const documents = state.documents.filter((doc) => doc.type !== "skill" && doc.type !== "converter-skill" && doc.name !== state.glossaryFileName);
+  $("knowledgeGrid").innerHTML = documents.length ? documents.map((doc) => `<article class="knowledge-card preview-doc" data-preview-doc="${escapeHtml(doc.name)}"><div class="knowledge-card-icon">${escapeHtml(doc.type === "transcript" ? "稿" : "KB")}</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>${escapeHtml({ transcript: "逐字稿", knowledge: "知识库" }[doc.type] || "知识库")} · ${doc.sections.length} 个章节 · ${doc.sections.reduce((sum, section) => sum + section.content.length, 0)} 字</p></div><div class="knowledge-card-actions"><button class="secondary-button download-doc large" data-doc="${escapeHtml(doc.name)}">下载</button><button class="secondary-button delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`).join("") : emptyUploadCard("documents", "fileInputModule", "拖入资料文件，或点击上传", "支持 Markdown 和 Go 源码");
   renderSkillCards();
+  renderConverterSkillTabs();
+  renderConverterSkillCards();
   renderRetrievalSettings();
 }
 
@@ -166,8 +191,36 @@ function renderSkillCards() {
   container.innerHTML = skills.length ? skills.map((doc) => {
     const active = doc.name === state.templateName;
     const wordCount = doc.sections.reduce((sum, section) => sum + section.content.length, 0);
-    return `<article class="knowledge-card skill-card${active ? " active" : ""}"><div class="knowledge-card-icon">SK</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>回答 Skill · ${doc.sections.length} 个章节 · ${wordCount} 字${active ? ' · <span class="skill-card-badge">当前应用中</span>' : ""}</p></div><div class="knowledge-card-actions"><button class="delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`;
+    return `<article class="knowledge-card skill-card preview-doc${active ? " active" : ""}" data-preview-doc="${escapeHtml(doc.name)}"><div class="knowledge-card-icon">SK</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>回答 Skill · ${doc.sections.length} 个章节 · ${wordCount} 字${active ? ' · <span class="skill-card-badge">当前应用中</span>' : ""}</p></div><div class="knowledge-card-actions"><button class="secondary-button download-doc large" data-doc="${escapeHtml(doc.name)}">下载</button><button class="secondary-button delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`;
   }).join("") : emptyUploadCard("skills", "skillFileInput", "拖入回答 Skill，或点击上传", "支持 Markdown，上传后自动应用");
+}
+
+function converterSkillPanelId(name) {
+  return `converterSkill-${encodeURIComponent(name)}`;
+}
+
+function renderConverterSkillTabs() {
+  const tabs = $("converterSkillTabs");
+  const content = document.querySelector(".settings-scroll-content");
+  if (!tabs || !content) return;
+  const skills = state.documents.filter((doc) => doc.type === "converter-skill");
+  tabs.innerHTML = skills.map((doc) => `<button class="settings-tab converter-skill-tab" data-settings="${escapeHtml(converterSkillPanelId(doc.name))}" data-converter-skill="${escapeHtml(doc.name)}">${escapeHtml(doc.name.replace(/\.(md|markdown)$/iu, ""))}</button>`).join("");
+  content.querySelectorAll(".converter-skill-panel").forEach((panel) => panel.remove());
+  skills.forEach((doc) => {
+    const wordCount = doc.sections.reduce((sum, section) => sum + section.content.length, 0);
+    const panel = document.createElement("div");
+    panel.className = "settings-panel hidden converter-skill-panel";
+    panel.id = converterSkillPanelId(doc.name);
+    panel.innerHTML = `<div class="module-header compact"><div><span class="section-kicker">DOCUMENT CONVERSION SKILL</span><h3>${escapeHtml(doc.name)}</h3><p>用于把原始文档整理成 Markdown 资料；不参与问答检索或回答生成。</p></div></div><div class="knowledge-grid"><article class="knowledge-card preview-doc" data-preview-doc="${escapeHtml(doc.name)}"><div class="knowledge-card-icon">CV</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>资料转换 Skill · ${doc.sections.length} 个章节 · ${wordCount} 字</p></div><div class="knowledge-card-actions"><button class="secondary-button download-converter-skill large" data-doc="${escapeHtml(doc.name)}">下载</button><button class="secondary-button delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article></div>`;
+    content.append(panel);
+  });
+}
+
+function renderConverterSkillCards() {
+  const container = $("converterSkillCardList");
+  if (!container) return;
+  const skills = state.documents.filter((doc) => doc.type === "converter-skill");
+  container.innerHTML = skills.length ? skills.map((doc) => `<article class="knowledge-card preview-doc" data-preview-doc="${escapeHtml(doc.name)}"><div class="knowledge-card-icon">CV</div><div class="knowledge-card-body"><h3>${escapeHtml(doc.name)}</h3><p>资料转换 Skill · 已保存到本机 · 不参与面试回答</p></div><div class="knowledge-card-actions"><button class="secondary-button download-converter-skill large" data-doc="${escapeHtml(doc.name)}">下载</button><button class="secondary-button delete-doc large" data-doc="${escapeHtml(doc.name)}">删除</button></div></article>`).join("") : emptyUploadCard("converter-skills", "converterSkillFileInput", "拖入资料转换 Skill，或点击上传", "支持 Markdown；每个 Skill 会成为顶部独立标签");
 }
 
 function renderRulesSettings() {
@@ -175,13 +228,45 @@ function renderRulesSettings() {
   const rule = state.answerRules;
   if (!container || !rule) return;
   const lines = rule.markdown.split("\n").length;
-  container.innerHTML = `<article class="knowledge-card"><div class="knowledge-card-icon">规则</div><div class="knowledge-card-body"><h3>${escapeHtml(rule.name)}</h3><p>回答规则 · ${lines} 行 · 已应用到下一次 LLM 回答</p></div><div class="knowledge-card-actions"><button class="secondary-button download-rules" type="button">下载</button></div></article><details class="rules-preview"><summary>查看当前规则</summary><pre>${escapeHtml(rule.markdown)}</pre></details>`;
+  container.innerHTML = `<article class="knowledge-card preview-doc" data-preview-kind="rules"><div class="knowledge-card-icon">规则</div><div class="knowledge-card-body"><h3>${escapeHtml(rule.name)}</h3><p>回答规则 · ${lines} 行 · 已应用到下一次 LLM 回答</p></div><div class="knowledge-card-actions"><button class="secondary-button download-rules" type="button">下载</button><button class="secondary-button delete-rules" type="button">删除</button></div></article>`;
 }
 
 function downloadRules() {
   const rule = state.answerRules;
   if (!rule) return;
   downloadTextFile({ name: rule.name, text: rule.markdown });
+}
+
+async function deleteRules() {
+  if (!window.confirm("确定删除当前回答规则并恢复内置默认规则吗？")) return;
+  const response = await fetch("/api/rules", { method: "DELETE" });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "删除回答规则失败");
+  state.answerRules = payload;
+  renderRulesSettings();
+}
+
+function openDocumentPreview({ name, markdown, kind = "DOCUMENT" }) {
+  if (!markdown?.trim()) return;
+  $("documentPreviewKind").textContent = kind;
+  $("documentPreviewTitle").textContent = name;
+  $("documentPreviewContent").textContent = markdown;
+  $("documentPreviewModal").classList.remove("hidden");
+}
+
+function closeDocumentPreview() {
+  $("documentPreviewModal").classList.add("hidden");
+}
+
+function previewDocumentFromCard(card) {
+  const documentName = card.dataset.previewDoc;
+  if (documentName) {
+    const documentItem = state.documents.find((item) => item.name === documentName);
+    if (documentItem) openDocumentPreview({ name: documentItem.name, markdown: documentItem.markdown, kind: documentItem.type === "converter-skill" ? "DOCUMENT CONVERSION SKILL" : documentItem.type === "skill" ? "ANSWER SKILL" : "SOURCE FILE" });
+    return;
+  }
+  if (card.dataset.previewKind === "rules" && state.answerRules) openDocumentPreview({ name: state.answerRules.name, markdown: state.answerRules.markdown, kind: "ANSWER RULES" });
+  if (card.dataset.previewKind === "glossary" && state.glossaryMarkdown) openDocumentPreview({ name: state.glossaryFileName, markdown: state.glossaryMarkdown, kind: "TERM GLOSSARY" });
 }
 
 async function importRulesFile(file) {
@@ -214,7 +299,12 @@ function renderRetrievalSettings(message = "") {
   const container = $("glossaryCardList");
   if (!container) return;
   const isUploaded = state.glossaryFileName !== "内置 AI 产品术语";
-  container.innerHTML = isUploaded ? `<article class="knowledge-card"><div class="knowledge-card-icon">术</div><div class="knowledge-card-body"><h3>${escapeHtml(state.glossaryFileName)}</h3><p>术语表 · ${state.glossary.length} 个术语 · 已自动应用</p></div><div class="knowledge-card-actions"><button class="delete-glossary large" type="button">删除</button></div></article>` : emptyUploadCard("glossary", "glossaryFileInput", message || "拖入术语表，或点击上传", "支持 Markdown，上传后自动应用");
+  container.innerHTML = isUploaded ? `<article class="knowledge-card preview-doc" data-preview-kind="glossary"><div class="knowledge-card-icon">术</div><div class="knowledge-card-body"><h3>${escapeHtml(state.glossaryFileName)}</h3><p>术语表 · ${state.glossary.length} 个术语 · 已自动应用</p></div><div class="knowledge-card-actions"><button class="secondary-button download-glossary large" type="button">下载</button><button class="secondary-button delete-glossary large" type="button">删除</button></div></article>` : emptyUploadCard("glossary", "glossaryFileInput", message || "拖入术语表，或点击上传", "支持 Markdown，上传后自动应用");
+}
+
+function downloadGlossary() {
+  if (!state.glossaryMarkdown) return;
+  downloadTextFile({ name: state.glossaryFileName, text: state.glossaryMarkdown });
 }
 
 function deleteGlossary() {
@@ -222,26 +312,17 @@ function deleteGlossary() {
   state.glossaryFileName = "内置 AI 产品术语";
   state.glossaryMarkdown = "";
   persistGlossary();
+  void syncQuestionCaptureHotwords();
   renderRetrievalSettings();
 }
 
 function formatDocumentExcerpt(content) {
-  return escapeHtml(content).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\n{2,}/g, "<br /><br />").replace(/\n/g, "<br />");
+  return escapeHtml(extractOriginalAnswer(content)).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\n{2,}/g, "<br /><br />").replace(/\n/g, "<br />");
 }
 
 function documentResultsHtml(query, sections = state.sections, route = routeAnswer(query, sections), retrieval = { semantic: { available: true } }) {
   const matches = route.matches;
-  const routeLabels = {
-    direct: "资料直答：已命中可直接作答的内容",
-    compose: "资料整合：将多段资料组合回答",
-    supplement: "资料补充：资料不完整，LLM 会补充组织",
-    fallback: "通用生成：本地资料没有可靠答案",
-  };
-  const semanticNotice = retrieval.semantic?.available === false
-    ? `<p class="answer-muted">语义检索暂不可用：${escapeHtml(retrieval.semantic.error || "已降级为关键词匹配")}</p>`
-    : "";
-  const source = `<p class="answer-muted">${routeLabels[route.mode]} · ${route.reason}</p>${semanticNotice}`;
-  return source + (matches.length ? matches.map((item) => `<article class="result-card">${item.project ? `<p class="answer-muted">所属项目：${escapeHtml(item.project)}</p>` : ""}<h3>${escapeHtml(item.title)}</h3><div class="document-excerpt">${formatDocumentExcerpt(item.content)}</div><div class="score-bar"><span style="width:${Math.min(98, 55 + item.score * 4)}%"></span></div></article>`).join("") : `<div class="empty-state compact"><span>⌕</span><p>文档库没有直接匹配</p><small>LLM 会明确标记为通用生成</small></div>`);
+  return matches.length ? matches.map((item) => `<article class="result-card"><div class="document-excerpt">${formatDocumentExcerpt(item.content)}</div></article>`).join("") : `<div class="empty-state compact"><span>⌕</span><p>文档库没有直接匹配</p><small>LLM 会明确标记为通用生成</small></div>`;
 }
 
 function getScopedSections(query) {
@@ -255,17 +336,11 @@ function getScopedSections(query) {
   return { sections: filterSectionsForProject(state.sections, resolved.projectId), resolved };
 }
 
-function productGlossarySections() {
-  if (!state.glossaryMarkdown) return [];
-  return parseMarkdown(state.glossaryMarkdown, state.glossaryFileName || "AI产品经理术语表.md")
-    .map((section) => ({ ...section, sourceType: "glossary" }));
-}
-
 function renderPreviousAnswer(previous) {
   if (!previous) return `<div class="previous-answer-modal-card previous-answer-empty" role="dialog" aria-modal="true" aria-label="上一个问题"><div class="previous-answer-modal-heading"><div><span class="section-kicker">PREVIOUS QUESTION</span><h2>还没有上一题</h2><p>完成下一道问题后，这里会保留本题的资料参考和 AI 回答。</p></div><button class="previous-answer-close" type="button" aria-label="关闭上一个问题">×</button></div></div>`;
   const documentAnswer = previous.documentHtml || `<p class="answer-muted">没有可用的文档库回答</p>`;
   const llmAnswer = previous.llmHtml || `<p class="answer-muted">回答仍在生成中</p>`;
-  return `<div class="previous-answer-modal-card" role="dialog" aria-modal="true" aria-label="上一个问题"><div class="previous-answer-modal-heading"><div><span class="section-kicker">PREVIOUS QUESTION</span><h2>上一个问题</h2><p>${escapeHtml(previous.question)}</p></div><button class="previous-answer-close" type="button" aria-label="关闭上一个问题">×</button></div><div class="previous-answer-grid"><section><span class="section-kicker">DOCUMENT LIBRARY</span>${documentAnswer}</section><section><span class="section-kicker">LLM GENERATED</span>${llmAnswer}</section></div></div>`;
+  return `<div class="previous-answer-modal-card" role="dialog" aria-modal="true" aria-label="上一个问题"><div class="previous-answer-modal-heading"><div><h2>上一个问题</h2><p>${escapeHtml(previous.question)}</p></div><button class="previous-answer-close" type="button" aria-label="关闭上一个问题">×</button></div><div class="previous-answer-grid"><section><h3>文档库参考</h3>${documentAnswer}</section><section><h3>LLM 生成回答</h3>${llmAnswer}</section></div></div>`;
 }
 
 function renderAnswerOverlay() {
@@ -285,7 +360,20 @@ function renderAnswerOverlay() {
 }
 
 function syncOverlayWindow() {
-  void window.interviewApp?.setOverlayMode?.(state.answerOverlayExpanded ? "expanded" : "collapsed");
+  const mode = document.querySelector('.app-view:not(.hidden)')?.id === "settingsView"
+    ? "settings"
+    : (state.answerOverlayExpanded ? "expanded" : "collapsed");
+  const nextMode = nextOverlayWindowMode(syncedOverlayWindowMode, mode);
+  if (nextMode) {
+    syncedOverlayWindowMode = nextMode;
+    void window.interviewApp?.setOverlayMode?.(nextMode);
+  }
+  window.requestAnimationFrame(() => {
+    const toolbar = $("answerOverlay")?.querySelector(".question-toolbar");
+    if (!toolbar) return;
+    const rect = toolbar.getBoundingClientRect();
+    void window.interviewApp?.setOverlayInteractiveRegions?.([{ x: rect.x, y: rect.y, width: rect.width, height: rect.height }]);
+  });
 }
 
 function showPreviousAnswer() {
@@ -336,7 +424,8 @@ async function retrieveSemanticCandidates(query, sections) {
 async function runSearch(query, confirm = false) {
   const cleanQuery = query.trim();
   const normalizedQuery = normalizeQuestion(cleanQuery, state.glossary);
-  $("transcriptText").textContent = cleanQuery || "点击“识别问题”后复述面试官的问题";
+  const displayQuery = normalizedQuery || cleanQuery;
+  $("transcriptText").textContent = displayQuery || "点击“识别问题”后复述面试官的问题";
   if (!cleanQuery) return;
   if (!confirm || !isConfirmedQuestion(cleanQuery)) return;
   const searchId = (state.searchId || 0) + 1;
@@ -344,18 +433,41 @@ async function runSearch(query, confirm = false) {
   const isFollowUp = classifyTranscript(cleanQuery).followUp;
   const scoped = getScopedSections(normalizedQuery);
   const scope = classifyAnswerScope(normalizedQuery, { isFollowUp, projectSource: scoped.resolved.source });
-  const candidateSections = scope === "product" ? [...scoped.sections, ...productGlossarySections()] : scoped.sections;
-  const materials = selectAnswerMaterials({ scope, sections: candidateSections, query: normalizedQuery });
-  const retrieval = await retrieveSemanticCandidates(normalizedQuery, materials);
-  if (state.searchId !== searchId) return;
-  const candidates = mergeHybridCandidates(normalizedQuery, materials, retrieval.matches);
-  const route = routeAnswer(normalizedQuery, materials, { allowProjectOverview: scope === "project" || scope === "followup", candidates });
-  const previousContext = scope === "followup" ? buildFollowUpContext(answerState.current) : "";
-  const current = beginQuestion(answerState, cleanQuery, documentResultsHtml(normalizedQuery, materials, route, retrieval), previousContext);
+  const materials = selectAnswerMaterials({ scope, sections: scoped.sections, query: normalizedQuery });
+  // 先把新题切到前台，绝不能在等待语义检索时继续展示上一题的资料和回答。
+  const previousContext = scope === "followup" ? buildFollowUpContext([...(answerState.history || []), answerState.current]) : "";
+  const current = beginQuestion(answerState, displayQuery, "", previousContext);
   state.answerOverlayView = "current";
   state.answerOverlayExpanded = true;
   renderAnswerState();
-  generateAnswer(normalizedQuery, current.requestId, current.context || "", route.matches, shouldUsePersonalContext(scope) ? selectPersonalContext(state.sections) : "", scope);
+  const candidates = mergeHybridCandidates(normalizedQuery, materials, []);
+  const route = routeAnswer(normalizedQuery, materials, { allowProjectOverview: scope === "project" || scope === "followup", candidates });
+  const evidence = selectAnswerEvidence({ route });
+  const llmMaterials = selectLlmAnswerMaterials({ route, materials });
+  // 左侧只负责展示命中的原文；不能再用“可作为生成证据”的阈值过滤一次。
+  // 右侧仍独立使用 llmMaterials 组织口述答案。
+  const referenceRoute = route.matches?.length
+    ? { ...route, matches: route.matches }
+    : { mode: "fallback", matches: [], confidence: 0, reason: evidence.reason };
+  setQuestionDocument(answerState, current.requestId, documentResultsHtml(normalizedQuery, materials, referenceRoute));
+  setQuestionContext(answerState, current.requestId, buildLlmContext(llmMaterials, { maxItems: 3, maxItemChars: 1100 }));
+  renderAnswerState();
+  generateAnswer(normalizedQuery, current.requestId, current.context || "", llmMaterials, shouldUsePersonalContext(scope) ? selectPersonalContext(state.sections) : "", scope);
+
+  void retrieveSemanticCandidates(normalizedQuery, materials).then((retrieval) => {
+    if (state.searchId !== searchId || answerState.current?.requestId !== current.requestId) return;
+    const semanticCandidates = mergeHybridCandidates(normalizedQuery, materials, retrieval.matches);
+    const semanticRoute = routeAnswer(normalizedQuery, materials, {
+      allowProjectOverview: scope === "project" || scope === "followup",
+      candidates: semanticCandidates,
+    });
+    const semanticEvidence = selectAnswerEvidence({ route: semanticRoute });
+    const semanticReferenceRoute = semanticRoute.matches?.length
+      ? { ...semanticRoute, matches: semanticRoute.matches }
+      : { mode: "fallback", matches: [], confidence: 0, reason: semanticEvidence.reason };
+    setQuestionDocument(answerState, current.requestId, documentResultsHtml(normalizedQuery, materials, semanticReferenceRoute, retrieval));
+    renderAnswerState();
+  });
 }
 
 function updateQuestionCaptureHotkeyUi() {
@@ -437,23 +549,62 @@ function escapeHtml(value) { return value.replace(/[&<>'"]/g, (char) => ({ "&":"
 
 function updateRepeatQuestionButton() {
   const button = $("voiceRepeatButton");
-  button.textContent = state.repeatListening ? "识别中 · 点击提交" : "识别问题";
+  button.disabled = !state.knowledgeReady;
+  button.setAttribute("aria-busy", String(!state.knowledgeReady));
+  button.querySelector("span").textContent = state.repeatListening ? "正在识别" : (state.knowledgeReady ? "识别问题" : "加载资料中");
   button.classList.toggle("active", state.repeatListening);
+  $("waveform").classList.toggle("is-listening", state.repeatListening);
+}
+
+function setQuestionCaptureReady(ready) {
+  state.knowledgeReady = Boolean(ready);
+  updateRepeatQuestionButton();
+  if (!state.knowledgeReady) {
+    $("transcriptText").textContent = "正在加载本地资料与术语…";
+    return;
+  }
+  if (!state.repeatListening) $("transcriptText").textContent = "待识别";
+  // 主进程收到此确认后才投递全局快捷键，防止首题进入尚未建立的本地索引。
+  void window.interviewApp?.markQuestionCaptureRendererReady?.();
 }
 
 function setupOverlayWindowDrag() {
   const card = $("transcriptCard");
   let dragStart = null;
   let moved = false;
+  function finishDrag(event) {
+    if (!dragStart) return;
+    if (event?.pointerId != null && event.pointerId !== dragStart.pointerId) return;
+    const pointerId = dragStart.pointerId;
+    const didMove = moved;
+    dragStart = null;
+    moved = false;
+    card.releasePointerCapture?.(pointerId);
+    if (!didMove) return;
+    event?.preventDefault?.();
+    void window.interviewApp?.finishOverlayDrag?.(state.answerOverlayExpanded ? "expanded" : "collapsed");
+  }
+  // 文本只是状态展示和拖拽区域；识别只能由明确的按钮或全局快捷键触发。
+  const stopTranscriptInteraction = (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  card.addEventListener("click", stopTranscriptInteraction, true);
+  card.addEventListener("dblclick", stopTranscriptInteraction, true);
   card.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    window.getSelection?.()?.removeAllRanges?.();
     dragStart = { x: event.screenX, y: event.screenY, pointerId: event.pointerId };
     moved = false;
     card.setPointerCapture?.(event.pointerId);
   });
   card.addEventListener("pointermove", (event) => {
     if (!dragStart || event.pointerId !== dragStart.pointerId) return;
+    if ((event.buttons & 1) === 0) {
+      finishDrag(event);
+      return;
+    }
     const deltaX = event.screenX - dragStart.x;
     const deltaY = event.screenY - dragStart.y;
     if (Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) return;
@@ -462,13 +613,12 @@ function setupOverlayWindowDrag() {
     dragStart = { x: event.screenX, y: event.screenY, pointerId: event.pointerId };
     void window.interviewApp?.moveOverlayBy?.(deltaX, deltaY);
   });
-  card.addEventListener("pointerup", (event) => {
-    if (event.pointerId !== dragStart?.pointerId) return;
-    card.releasePointerCapture?.(event.pointerId);
-    dragStart = null;
-    if (moved) event.preventDefault();
-  });
-  card.addEventListener("pointercancel", () => { dragStart = null; });
+  card.addEventListener("pointerup", finishDrag);
+  card.addEventListener("pointercancel", finishDrag);
+  window.addEventListener("pointerup", finishDrag, true);
+  window.addEventListener("pointercancel", finishDrag, true);
+  window.addEventListener("blur", finishDrag);
+  card.addEventListener("selectstart", (event) => event.preventDefault());
 }
 
 function clearRepeatSilenceTimer() {
@@ -489,13 +639,13 @@ function queueNextQuestionCapture() {
     state.repeatRestartTimer = null;
     if (!state.pendingQuestionCaptureStart || state.repeatAwaitingFinal) return;
     state.pendingQuestionCaptureStart = false;
-    void startRepeatQuestion();
+    void startRepeatQuestion({ source: "queued" });
   }, waitMs);
 }
 
 function submitRepeatedQuestion() {
   // 录音期间可能收到多个 ASR 分段；只在静音或用户再次确认时，将整段文本作为一个问题提交。
-  const question = state.repeatText.trim();
+  const question = normalizeAsrQuestion(state.repeatText);
   if (!question || state.repeatSubmitted) return;
   state.repeatSubmitted = true;
   runSearch(question, true);
@@ -590,13 +740,18 @@ async function rebuildRepeatQuestionCapture() {
     state.repeatListening = false;
     state.repeatLastRecoveryAt = Date.now();
     await window.interviewApp?.stopQuestionCapture?.();
-    await startRepeatQuestion({ preservedText });
+    await startRepeatQuestion({ preservedText, source: "recovery" });
   } finally {
     state.repeatRecovering = false;
   }
 }
 
-async function startRepeatQuestion({ preservedText = null } = {}) {
+async function startRepeatQuestion({ preservedText = null, source = null } = {}) {
+  if (!allowedQuestionCaptureSources.has(source)) return;
+  if (!state.knowledgeReady) {
+    $("transcriptText").textContent = "正在加载本地资料与术语，请稍候…";
+    return;
+  }
   const action = nextQuestionCaptureAction({ active: state.repeatListening, waitingFinal: state.repeatAwaitingFinal });
   if (action === "submit") return finalizeRepeatQuestion();
   if (action === "queue") {
@@ -675,6 +830,19 @@ function handleRepeatAsrEvent(payload) {
     return;
   }
   if (payload?.type === "error" || payload?.type === "closed") {
+    const terminalAction = nextQuestionCaptureTerminalAction({
+      listening: state.repeatListening,
+      awaitingFinal: state.repeatAwaitingFinal,
+    });
+    // 主动停止后豆包会延迟关闭旧 WebSocket；这是预期行为，不能清空已排队的下一题。
+    if (terminalAction === "ignore") return;
+    if (terminalAction === "submit") {
+      clearRepeatFinalizeTimer();
+      state.repeatAwaitingFinal = false;
+      submitRepeatedQuestion();
+      if (state.pendingQuestionCaptureStart) queueNextQuestionCapture();
+      return;
+    }
     const message = payload.message || "语音识别连接已断开，请重新点击“识别问题”";
     void abortRepeatQuestion(message);
     return;
@@ -682,9 +850,16 @@ function handleRepeatAsrEvent(payload) {
   if (payload?.type !== "result") return;
   const text = payload.sentence?.sentence?.trim() || "";
   if (!text) return;
-  // 豆包可能按分段返回，也可能返回累计文本；统一合并，不能让后半句覆盖完整问题。
-  state.repeatText = mergeAsrTranscript(state.repeatText, text);
-  $("transcriptText").textContent = state.repeatText;
+  // 豆包可能按分段返回，也可能返回累计文本。累计全文以最新事件覆盖，
+  // 分段结果才拼接，避免服务端回改前文时把同一句显示两遍。
+  state.repeatText = mergeAsrTranscript(state.repeatText, text, { isCumulative: payload.isCumulative });
+    // 监听时先展示原始累计转写；提交后仍由 runSearch 展示归一化后的完整问题。
+    $("transcriptText").textContent = nextVisibleTranscript({
+      current: $("transcriptText").textContent,
+      incomingText: state.repeatAwaitingFinal ? "" : text,
+      mergedText: state.repeatText,
+      sentenceType: payload.sentence?.sentence_type,
+    });
   if (payload.sentence?.sentence_type === 1 && state.repeatAwaitingFinal) {
     clearRepeatFinalizeTimer();
     state.repeatAwaitingFinal = false;
@@ -706,7 +881,7 @@ async function loadBundledKnowledgeBase() {
     const before = JSON.stringify(documentPayload());
     const after = JSON.stringify(nextDocuments);
     if (before === after) return;
-    state.documents = nextDocuments.map((document) => ({ ...document, sections: parseMarkdown(document.markdown, document.name) }));
+    state.documents = await hydrateDocumentSections(nextDocuments);
     refreshSearchSections();
     await persistDocuments();
     renderDocuments();
@@ -715,22 +890,43 @@ async function loadBundledKnowledgeBase() {
   }
 }
 
+async function hydrateStartupData() {
+  await Promise.all([loadPersistedDocuments(), loadPersistedGlossary()]);
+  setQuestionCaptureReady(true);
+  void loadBundledKnowledgeBase();
+}
+
 function setupModules() {
   document.body.classList.add("overlay-mode");
+  $("alwaysOnTopButton").classList.add("active");
   updateSkillPreview();
   setupDropUploads();
   document.querySelectorAll(".nav-button").forEach((button) => button.addEventListener("click", () => {
     document.querySelectorAll(".nav-button").forEach((item) => item.classList.toggle("active", item === button));
     document.querySelectorAll(".app-view").forEach((view) => view.classList.toggle("hidden", view.id !== button.dataset.view));
     document.body.classList.toggle("overlay-mode", button.dataset.view === "questionView");
-    void window.interviewApp?.setOverlayMode?.(button.dataset.view === "settingsView" ? "settings" : (state.answerOverlayExpanded ? "expanded" : "collapsed"));
+    syncOverlayWindow();
   }));
+  function closeSettings() {
+    document.querySelector('.nav-button[data-view="questionView"]').click();
+  }
+  $("closeSettingsButton").addEventListener("click", closeSettings);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!$("settingsView").classList.contains("hidden")) {
+      closeSettings();
+      return;
+    }
+    if (!state.answerOverlayExpanded) return;
+    state.answerOverlayExpanded = false;
+    renderAnswerState();
+  });
   const settingsTabs = document.querySelector(".settings-tabs");
   settingsTabs?.addEventListener("click", (event) => {
     const button = event.target.closest(".settings-tab");
     if (button) activateSettingsPanel(button.dataset.settings);
   });
-  document.addEventListener("click", (event) => { const glossaryButton = event.target.closest(".delete-glossary"); if (glossaryButton && window.confirm("确定删除当前术语表吗？")) deleteGlossary(); const downloadButton = event.target.closest(".download-doc"); if (downloadButton) downloadDocument(downloadButton.dataset.doc); const deleteButton = event.target.closest(".delete-doc"); if (deleteButton && window.confirm(`确定删除“${deleteButton.dataset.doc}”吗？`)) deleteDocument(deleteButton.dataset.doc); });
+  document.addEventListener("click", (event) => { const glossaryButton = event.target.closest(".delete-glossary"); if (glossaryButton && window.confirm("确定删除当前术语表吗？")) { deleteGlossary(); return; } const glossaryDownloadButton = event.target.closest(".download-glossary"); if (glossaryDownloadButton) { downloadGlossary(); return; } const rulesDeleteButton = event.target.closest(".delete-rules"); if (rulesDeleteButton) { void deleteRules().catch((error) => window.alert(error.message || "删除回答规则失败")); return; } const downloadButton = event.target.closest(".download-doc"); if (downloadButton) { downloadDocument(downloadButton.dataset.doc); return; } const converterDownloadButton = event.target.closest(".download-converter-skill"); if (converterDownloadButton) { downloadDocument(converterDownloadButton.dataset.doc); return; } const deleteButton = event.target.closest(".delete-doc"); if (deleteButton && window.confirm(`确定删除“${deleteButton.dataset.doc}”吗？`)) { deleteDocument(deleteButton.dataset.doc); return; } const previewCard = event.target.closest(".preview-doc"); if (previewCard) previewDocumentFromCard(previewCard); });
   $("previousAnswerButton").addEventListener("click", () => state.answerOverlayView === "previous" ? showCurrentAnswer() : showPreviousAnswer());
   $("answerOverlayToggle").addEventListener("click", toggleAnswerOverlay);
   $("answerOverlayBackdrop").addEventListener("click", () => {
@@ -747,6 +943,7 @@ function setupModules() {
     const enabled = await window.interviewApp?.toggleAlwaysOnTop?.();
     if (typeof enabled !== "boolean") return;
     const button = $("alwaysOnTopButton");
+    button.classList.toggle("active", enabled);
     button.innerHTML = `<i data-lucide="${enabled ? "pin" : "pin-off"}"></i>`;
     button.setAttribute("aria-label", enabled ? "取消置顶" : "置顶显示");
     button.title = enabled ? "取消置顶" : "置顶显示";
@@ -771,12 +968,16 @@ function setupModules() {
   $("closeEditorButton").addEventListener("click", closeEditor);
   $("cancelEditorButton").addEventListener("click", closeEditor);
   $("saveEditorButton").addEventListener("click", saveEditor);
-  $("voiceRepeatButton").addEventListener("click", startRepeatQuestion);
+  $("closeDocumentPreviewButton").addEventListener("click", closeDocumentPreview);
+  $("documentPreviewModal").addEventListener("click", (event) => { if (event.target === $("documentPreviewModal")) closeDocumentPreview(); });
+  $("voiceRepeatButton").addEventListener("click", () => startRepeatQuestion({ source: "button" }));
   setupOverlayWindowDrag();
   if (window.interviewApp?.onQuestionCaptureEvent) window.interviewApp.onQuestionCaptureEvent(handleRepeatAsrEvent);
-  if (window.interviewApp?.onQuestionCaptureHotkey) window.interviewApp.onQuestionCaptureHotkey(startRepeatQuestion);
-  // 主进程只有收到此确认后才会投递全局快捷键；启动过程中用户已按下的快捷键也会补发。
-  void window.interviewApp?.markQuestionCaptureRendererReady?.();
+  if (window.interviewApp?.onQuestionCaptureHotkey) window.interviewApp.onQuestionCaptureHotkey(() => startRepeatQuestion({ source: "hotkey" }));
+  // 首个快捷键到达前先同步内置术语，避免 GEO 等专名在冷启动时缺少热词上下文。
+  void syncQuestionCaptureHotwords();
+  // 窗口和拖拽先可用；资料完成解析后才开放识别按钮和全局快捷键。
+  setQuestionCaptureReady(false);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) void resumeRepeatAudioContext(); });
   window.addEventListener("focus", () => { void resumeRepeatAudioContext(); });
   window.interviewApp?.onOverlayBlur?.(() => {
@@ -785,6 +986,7 @@ function setupModules() {
     renderAnswerState();
   });
   $("skillFileInput").addEventListener("change", async (event) => { await importSkillFiles(event.target.files); event.target.value = ""; });
+  $("converterSkillFileInput").addEventListener("change", async (event) => { await importConverterSkillFiles(event.target.files); event.target.value = ""; });
   $("rulesFileInput").addEventListener("change", async (event) => { try { await importRulesFile(event.target.files[0]); } catch (error) { window.alert(error.message || "规则文件上传失败"); } event.target.value = ""; });
   $("rulesCardList").addEventListener("click", (event) => { if (event.target.closest(".download-rules")) downloadRules(); });
 }
@@ -793,6 +995,7 @@ function setupDropUploads() {
   const targets = [
     ["knowledgeGrid", importDocumentFiles],
     ["skillCardList", importSkillFiles],
+    ["converterSkillCardList", importConverterSkillFiles],
     ["glossaryCardList", async (files) => importGlossaryFile(files[0])],
   ];
   targets.forEach(([id, importFiles]) => {
@@ -972,15 +1175,17 @@ function saveEditor() {
 
 async function importDocumentFiles(files) { for (const file of files) { state.deletedDocuments = state.deletedDocuments.filter((name) => name !== file.name); addDocument(file.name, await file.text(), "knowledge"); } writeStorage("interview.deletedDocuments", JSON.stringify(state.deletedDocuments)); await persistDocuments(); }
 async function importSkillFiles(files) { for (const file of files) addDocument(file.name, await file.text(), "skill"); }
+async function importConverterSkillFiles(files) { for (const file of files) addDocument(file.name, await file.text(), "converter-skill"); }
 async function importGlossaryFile(file) {
   if (!file) return;
   const markdown = await file.text();
   const glossary = parseGlossaryMarkdown(markdown);
   if (!glossary.length) { renderRetrievalSettings("文件未应用：未识别到有效术语"); return; }
-  state.glossary = glossary;
+  state.glossary = mergeGlossaryTerms(glossary);
   state.glossaryFileName = file.name;
   state.glossaryMarkdown = markdown;
   persistGlossary();
+  void syncQuestionCaptureHotwords();
   renderRetrievalSettings();
 }
 $('fileInputModule').addEventListener("change", async (event) => { await importDocumentFiles(event.target.files); event.target.value = ""; });
@@ -989,8 +1194,4 @@ setupModules();
 renderAnswerState();
 loadAsrConfig();
 loadAnswerRules();
-void (async () => {
-  await loadPersistedDocuments();
-  await loadPersistedGlossary();
-  await loadBundledKnowledgeBase();
-})();
+setTimeout(() => { void hydrateStartupData(); }, 0);
