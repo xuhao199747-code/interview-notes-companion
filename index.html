@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1220" />
+    <title>面试资料伴侣</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="modal.css" />
+    <link rel="stylesheet" href="config.css" />
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">✦</span><span>面试资料伴侣</span></div>
+        <nav class="main-nav" aria-label="主导航">
+          <button class="nav-button active" data-view="questionView">问题</button>
+          <button class="nav-button" data-view="settingsView">设置</button>
+        </nav>
+        <div class="privacy-pill"><span class="status-dot"></span>资料仅保存在本机</div>
+      </header>
+
+      <main class="workspace">
+        <section class="question-workspace app-view" id="questionView">
+          <div class="answer-overlay-backdrop hidden" id="answerOverlayBackdrop"></div>
+          <section class="answer-overlay" id="answerOverlay">
+          <div class="question-toolbar"><section class="panel live-panel">
+            <div class="listening-row"><div class="transcript-card" id="transcriptCard">
+              <div class="waveform" id="waveform"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+              <p class="transcript-placeholder" id="transcriptText">点击“识别问题”后录入当前这一题；回答时不会继续采集你的声音</p>
+            </div><button class="repeat-question-button" id="voiceRepeatButton" type="button"><i data-lucide="sparkles"></i><span>识别问题</span></button><button class="overlay-action" id="previousAnswerButton" type="button" disabled>上一题</button><button class="overlay-action icon" id="answerOverlayToggle" type="button" aria-label="展开回答" title="展开回答"><i data-lucide="chevron-up"></i></button><button class="overlay-action icon" id="alwaysOnTopButton" type="button" aria-label="取消置顶" title="取消置顶"><i data-lucide="pin"></i></button><button class="overlay-action icon" id="overlaySettingsButton" type="button" aria-label="设置" title="设置"><i data-lucide="settings-2"></i></button><button class="overlay-action icon" id="overlayCompactButton" type="button" aria-label="隐藏工具栏" title="隐藏工具栏"><i data-lucide="panel-top-close"></i></button><span id="docCount" class="hidden">0</span></div>
+            <div class="tips"><span>⌘</span><span>每一道题需手动点击一次；静音 3 秒后会自动提交并停止采集</span></div>
+          </section></div>
+          <div class="current-answer-grid answer-source-grid" id="answerOverlayBody"><section class="answer-source"><div class="source-heading"><h3>文档库参考</h3></div><div id="documentResults" class="results-list"></div></section><section class="answer-source"><div class="source-heading"><h3>LLM 生成回答</h3></div><div id="llmResults" class="results-list"></div></section></div>
+          </section>
+        </section>
+
+        <section class="module-view app-view hidden" id="settingsView">
+          <div class="settings-sticky-header"><div class="module-header"><div><span class="section-kicker">SETTINGS</span><h2>设置</h2></div><button class="settings-close" id="closeSettingsButton" type="button" aria-label="关闭设置" title="关闭设置"><i data-lucide="x"></i></button></div>
+          <div class="settings-tabs"><button class="settings-tab active" data-settings="knowledgeSettings">资料管理</button><button class="settings-tab" data-settings="templateSettings">回答 Skill</button><button class="settings-tab" data-settings="converterSkillsSettings">资料转换 Skill</button><span id="converterSkillTabs"></span><button class="settings-tab" data-settings="rulesSettings">回答规则</button><button class="settings-tab" data-settings="retrievalSettings">术语表</button><button class="settings-tab" data-settings="apiSettings">语音识别</button><button class="settings-tab" data-settings="llmSettings">LLM API</button></div></div><div class="settings-scroll-content">
+          <div class="settings-panel" id="knowledgeSettings"><div class="module-header compact"><div><span class="section-kicker">SOURCE FILES</span><h3>资料管理</h3><p>上传或删除 Markdown 和 Go 源码资料文件。</p></div><div class="upload-controls"><button class="secondary-button" id="exportLocalBackupButton" type="button">导出备份</button><button class="secondary-button" id="importLocalBackupButton" type="button">导入备份</button><label class="primary-button" for="fileInputModule">＋ 上传资料</label></div></div><p class="local-backup-hint">备份包含资料、术语表、回答规则和快捷键；不包含 API Key、Access Token 或语音服务密钥。</p><input id="fileInputModule" type="file" accept=".md,.markdown,.go,text/markdown" multiple hidden /><input id="localBackupFileInput" type="file" accept=".json,application/json" hidden /><div class="knowledge-grid" id="knowledgeGrid"></div></div>
+          <div class="settings-panel hidden" id="templateSettings"><div class="module-header compact"><div><span class="section-kicker">ANSWER SKILL</span><h3>回答 Skill</h3><p>上传后会立即应用到下一次 LLM 回答。</p></div><label class="primary-button" for="skillFileInput">＋ 上传 Skill 文档</label><input id="skillFileInput" type="file" accept=".md,.markdown,text/markdown" multiple hidden /></div><div class="knowledge-grid" id="skillCardList"></div></div>
+          <div class="settings-panel hidden" id="converterSkillsSettings"><div class="module-header compact"><div><span class="section-kicker">DOCUMENT CONVERSION</span><h3>资料转换 Skill</h3><p>先下载并使用此 Skill，把原始文档整理成 Markdown；再将整理后的 Markdown 上传到“资料管理”。转换 Skill 只用于整理资料，不参与面试回答。</p></div><button class="primary-button" id="uploadConverterSkillButton" type="button">＋ 上传转换 Skill</button><input id="converterSkillFileInput" type="file" accept=".md,.markdown,text/markdown" multiple hidden /></div><div class="knowledge-grid" id="converterSkillCardList"></div></div>
+          <div class="settings-panel hidden" id="rulesSettings"><div class="module-header compact"><div><span class="section-kicker">ANSWER RULES</span><h3>回答规则</h3><p>控制回答范围、事实边界和表达要求；上传新版后立即应用。</p></div><label class="primary-button" for="rulesFileInput">＋ 上传新版规则</label><input id="rulesFileInput" type="file" accept=".md,.markdown,text/markdown" hidden /></div><div class="knowledge-grid" id="rulesCardList"></div></div>
+          <div class="settings-panel hidden" id="retrievalSettings"><div class="module-header compact"><div><span class="section-kicker">TERM GLOSSARY</span><h3>术语表</h3><p>上传 Markdown 文件后会立即自动应用。</p></div><label class="primary-button" for="glossaryFileInput">＋ 上传术语表</label><input id="glossaryFileInput" type="file" accept=".md,.markdown,text/markdown" hidden /></div><div class="knowledge-grid" id="glossaryCardList"></div></div>
+          <div class="settings-panel hidden" id="apiSettings"><div class="settings-copy"><span class="section-kicker">SPEECH TO TEXT</span><h3>语音识别</h3><p>用于“识别问题”这一道题的录入，不会持续监听。</p><div class="provider-grid"><div class="full-field"><label for="asrProvider">语音识别服务</label><select id="asrProvider"><option value="browser">浏览器 Web Speech（默认）</option><option value="tencent">腾讯云实时语音识别 V2</option><option value="doubao">豆包流式语音识别（火山引擎）</option></select></div><div id="tencentConfigFields" class="full-field provider-grid"><div><label for="tencentRegion">腾讯云地域</label><input id="tencentRegion" value="ap-guangzhou" /></div><div><label for="tencentAppId">腾讯云 AppID</label><input id="tencentAppId" inputmode="numeric" /></div><div><label for="tencentSecretId">SecretID</label><input id="tencentSecretId" autocomplete="off" /></div><div><label for="tencentSecretKey">SecretKey</label><input id="tencentSecretKey" type="password" autocomplete="new-password" /></div></div><div id="doubaoConfigFields" class="full-field provider-grid hidden"><div><label for="doubaoAppId">豆包 App ID</label><input id="doubaoAppId" /></div><div><label for="doubaoAccessToken">Access Token</label><input id="doubaoAccessToken" type="password" /></div><div><label for="doubaoResourceId">资源 ID</label><input id="doubaoResourceId" /></div><div><label for="doubaoEndpoint">WebSocket 地址</label><input id="doubaoEndpoint" value="wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async" /></div></div></div><section class="settings-guide question-capture-hotkey-config"><strong>识别问题快捷键</strong><p>按一次开始录题；录入中再按一次立即提交。停顿 1.2 秒也会自动提交。</p><label for="questionCaptureHotkey">全局组合快捷键</label><input id="questionCaptureHotkey" readonly value="Alt+Space" /><small>点击输入框后按“修饰键 + 普通键”，例如 Alt + Q。</small><div class="api-status" id="questionCaptureHotkeyStatus"><span class="status-dot"></span>修改后自动保存到本机。</div><div class="config-actions"><button class="primary-button" id="saveQuestionCaptureHotkeyButton" type="button">保存快捷键</button></div></section><div class="api-status" id="asrConfigStatus"><span class="status-dot"></span>默认使用浏览器语音识别</div><div class="config-actions"><button class="primary-button" id="saveAsrConfigButton">保存语音配置</button><button class="secondary-button" id="testAsrConfigButton">测试当前语音服务</button></div></div></div>
+          <div class="settings-panel hidden" id="llmSettings"><div class="settings-copy"><span class="section-kicker">LLM API</span><h3>LLM API 接入</h3><p>当知识库没有匹配答案时，程序会使用这里的 API 按回答 Skill 生成补充回答。保存后请点击“测试连接”，只有测试通过才代表可以使用。</p><div class="provider-grid"><div class="full-field"><label for="aiApiUrl">API 地址</label><input id="aiApiUrl" placeholder="https://api.openai.com/v1/chat/completions" /></div><div><label for="aiModel">模型名称</label><input id="aiModel" placeholder="例如 gpt-4o-mini" /></div><div><label for="aiApiKey">API Key</label><input id="aiApiKey" type="password" autocomplete="new-password" placeholder="只在本地填写，不会回显" /></div></div><div class="api-status" id="llmConfigStatus"><span class="status-dot"></span>尚未配置 LLM API</div><div class="config-actions"><button class="primary-button" id="saveLlmConfigButton">保存 LLM 配置</button><button class="secondary-button" id="testLlmConfigButton">测试连接</button><button class="ghost-button" id="useDeepSeekPresetButton">填入 DeepSeek 示例</button></div><div class="settings-guide"><strong>DeepSeek 正确填写示例</strong><ol><li>API 地址：<code>https://api.deepseek.com/chat/completions</code></li><li>模型名称：<code>deepseek-v4-flash</code></li><li>不要填写 <code>platform.deepseek.com/api_keys</code>，那是密钥管理网页，不是 API。</li></ol></div></div></div>
+        </section>
+      </main>
+    </div>
+    <div class="editor-modal hidden" id="editorModal" role="dialog" aria-modal="true" aria-labelledby="editorModalTitle">
+      <div class="editor-modal-card"><div class="modal-heading"><div><span class="section-kicker">EDIT SOURCE</span><h2 id="editorModalTitle">编辑资料</h2></div><button class="modal-close" id="closeEditorButton">×</button></div><label for="editorFileName">文件名称</label><input id="editorFileName" /><label for="editorContent">Markdown 内容</label><textarea id="editorContent" spellcheck="false"></textarea><div class="modal-actions"><button class="secondary-button" id="cancelEditorButton">取消</button><button class="primary-button" id="saveEditorButton">保存修改</button></div></div>
+    </div>
+    <div class="document-preview-modal hidden" id="documentPreviewModal" role="dialog" aria-modal="true" aria-labelledby="documentPreviewTitle"><div class="document-preview-card"><div class="modal-heading"><div><span class="section-kicker" id="documentPreviewKind">DOCUMENT</span><h2 id="documentPreviewTitle">文档预览</h2></div><button class="modal-close" id="closeDocumentPreviewButton" type="button" aria-label="关闭预览">×</button></div><pre id="documentPreviewContent"></pre></div></div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

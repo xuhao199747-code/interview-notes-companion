@@ -1,0 +1,54 @@
+{
+  "name": "interview-notes-companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node server.js",
+    "desktop": "electron .",
+    "package:mac": "electron-builder --mac dir --arm64"
+  },
+  "devDependencies": {
+    "electron": "^37.2.1",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "ws": "^8.18.3"
+  },
+  "build": {
+    "appId": "com.local.interview-notes-companion",
+    "productName": "面试资料伴侣",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "!test{,/**}",
+      "!docs{,/**}",
+      "!.github{,/**}",
+      "!.local{,/**}",
+      "!knowledge{,/**}",
+      "!personal{,/**}",
+      "!private{,/**}",
+      "!个人资料{,/**}",
+      "!知识库{,/**}",
+      "!*.private.md",
+      "!*.local.md",
+      "!assets/*.private.md",
+      "!assets/*.local.md",
+      "!.worktrees{,/**}",
+      "!release{,/**}",
+      "!*.command",
+      "!*.DS_Store"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dir"
+      ]
+    }
+  }
+}

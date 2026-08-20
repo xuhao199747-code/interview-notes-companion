@@ -1,0 +1,27 @@
+node_modules/
+.local/
+dist/
+release/
+.DS_Store
+.worktrees/
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+*.mobileprovision
+local-data/
+/private/
+exports/
+
+# 仅保存在本机的面试资料、项目原文与个人信息；绝不推送到 GitHub。
+/knowledge/
+/personal/
+/private/
+/个人资料/
+/知识库/
+/*.private.md
+/*.local.md
+/assets/*.private.md
+/assets/*.local.md
