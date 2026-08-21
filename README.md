@@ -1,8 +1,10 @@
 # 面试资料伴侣
 
+<p align="center"><img src="assets/app-icon.png" width="128" alt="面试资料伴侣图标"></p>
+
 > 本地优先的 macOS 面试资料辅助工具：把 Markdown 资料、术语表和回答规则组织在本机，在需要时用一次性语音识别问题，快速检索资料并生成口述参考答案。
 
-![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple) ![Runtime](https://img.shields.io/badge/runtime-Electron-47848F?logo=electron) ![Data](https://img.shields.io/badge/data-local--first-7c3aed)
+![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple) ![Runtime](https://img.shields.io/badge/runtime-Electron-47848F?logo=electron) ![Data](https://img.shields.io/badge/data-local--first-B8FF55)
 
 它适合已经自行整理了面试资料、希望在授权可读稿或练习场景中快速定位内容的人。项目不会提供或上传任何默认的个人简历、项目经历、逐字稿或服务密钥；这些内容由每个使用者在本机自行导入和管理。
 

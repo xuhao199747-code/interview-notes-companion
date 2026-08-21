@@ -1,6 +1,7 @@
 {
   "name": "interview-notes-companion",
   "version": "0.1.0",
+  "description": "Local-first macOS interview notes companion.",
   "private": true,
   "type": "module",
   "main": "electron/main.js",
@@ -19,6 +20,7 @@
     "ws": "^8.18.3"
   },
   "build": {
+    "electronVersion": "37.10.3",
     "appId": "com.local.interview-notes-companion",
     "productName": "面试资料伴侣",
     "asar": false,
@@ -45,6 +47,7 @@
       "!*.DS_Store"
     ],
     "mac": {
+      "icon": "assets/app-icon.icns",
       "category": "public.app-category.productivity",
       "target": [
         "dir"
